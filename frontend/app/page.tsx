@@ -138,7 +138,7 @@ export default function Home() {
 
       // 3. Carrega Áreas
       try {
-        const res = await fetch("process.env.NEXT_PUBLIC_API_URL/areas");
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/areas`);
         if (res.ok) setAreas(await res.json());
       } catch(e) { console.error("API Offline"); }
       
