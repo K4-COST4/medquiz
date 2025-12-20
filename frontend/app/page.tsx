@@ -59,11 +59,9 @@ function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
                 >
                     <div className="font-bold text-sm mb-1">{isBoss ? "BOSS FINAL" : `Nível ${index + 1}`}</div>
                     
-                    {/* --- AQUI ESTÁ A MUDANÇA --- */}
                     <div className="text-[10px] font-bold tracking-wider text-[#0cb7f2] uppercase">
                         {isBoss ? "Meta: 7/10 • +15 XP Bônus" : "Meta: 4/5 Acertos"}
                     </div>
-                    {/* --------------------------- */}
 
                     <div className="absolute top-full left-1/2 -ml-2 border-[8px] border-transparent border-t-slate-800"></div>
                 </motion.div>
@@ -80,7 +78,6 @@ function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
                 className={`relative ${size} rounded-full flex items-center justify-center border-[5px] border-white ${finalClass}`}
             >
                 {icon}
-                {/* Brilho interno se desbloqueado */}
                 {unlocked && !completed && <div className="absolute inset-0 rounded-full bg-white/20 animate-pulse"></div>}
             </button>
         </div>
@@ -132,12 +129,13 @@ export default function Home() {
         // 2. Carrega Perfil e Progresso EM PARALELO
         await Promise.all([
             atualizarPerfil(session.user.id),
-            carregarProgresso(session.user.id) // <--- Isso aqui tem que rodar!
+            carregarProgresso(session.user.id)
         ]);
       }
 
       // 3. Carrega Áreas
       try {
+        // CORREÇÃO AQUI: Usando crase e ${}
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/areas`);
         if (res.ok) setAreas(await res.json());
       } catch(e) { console.error("API Offline"); }
@@ -156,16 +154,18 @@ export default function Home() {
 
   async function carregarProgresso(userId: string) {
       try {
-          const res = await fetch(`process.env.NEXT_PUBLIC_API_URL/progresso/${userId}`);
+          // CORREÇÃO AQUI: Usando crase e ${}
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso/${userId}`);
           const data = await res.json();
           setMapaProgresso(data);
       } catch (e) { console.error(e); }
   }
 
   // --- FUNÇÕES DE NAVEGAÇÃO ---
-  async function selArea(item: any) { setSelectedArea(item); const res = await fetch(`process.env.NEXT_PUBLIC_API_URL/sistemas/${item.id}`); setSistemas(await res.json()); }
-  async function selSistema(item: any) { setSelectedSystem(item); const res = await fetch(`process.env.NEXT_PUBLIC_API_URL/trilhas/${item.id}`); setDisciplinas(await res.json()); }
-  async function selDisciplina(item: any) { setSelectedDisciplina(item); const res = await fetch(`process.env.NEXT_PUBLIC_API_URL/ilhas/${item.id}`); setTopicos(await res.json()); }
+  // CORREÇÕES AQUI: Usando crase e ${} em todos os fetchs
+  async function selArea(item: any) { setSelectedArea(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sistemas/${item.id}`); setSistemas(await res.json()); }
+  async function selSistema(item: any) { setSelectedSystem(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/trilhas/${item.id}`); setDisciplinas(await res.json()); }
+  async function selDisciplina(item: any) { setSelectedDisciplina(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ilhas/${item.id}`); setTopicos(await res.json()); }
   function selTopico(item: any) { setSelectedTopico(item); }
 
   function resetArea() { setSelectedArea(null); setSelectedSystem(null); setSelectedDisciplina(null); setSelectedTopico(null); }
@@ -184,33 +184,29 @@ export default function Home() {
       setScoreSessao(0);
       setIndiceQuestao(0);
       setFeedback(null);
-      setXpGanhoSessao(0); // Reseta o XP visual da sessão
+      setXpGanhoSessao(0);
 
-      // --- ALTERAÇÃO AQUI ---
       let diff = "Fácil";
       let qtd = 5; 
 
       if (index >= 2) diff = "Médio";
       
-      // Configuração do Boss
       if (isBoss) { 
           diff = "Difícil"; 
-          qtd = 10; // Boss exige 10 questões
+          qtd = 10;
       }
-      // ----------------------
-
-      // Dentro de async function iniciarCheckpoint...
 
       try {
-          // --- ALTERAÇÃO AQUI: Adicionei o user_id na URL ---
-          const url = `process.env.NEXT_PUBLIC_API_URL/praticar/session/${selectedTopico.id}?user_id=${user.id}&quantidade=${qtd}&dificuldade=${diff}`;
-          // --------------------------------------------------
+          // CORREÇÃO AQUI: Crase e ${} para a URL completa
+          const url = `${process.env.NEXT_PUBLIC_API_URL}/praticar/session/${selectedTopico.id}?user_id=${user.id}&quantidade=${qtd}&dificuldade=${diff}`;
+          
           const res = await fetch(url);
           let lista = await res.json();
 
           // Fallback se backend falhar
           if (!lista || lista.length === 0) {
-             const resB = await fetch(`process.env.NEXT_PUBLIC_API_URL/praticar/ilha/${selectedTopico.id}`);
+             // CORREÇÃO AQUI: Crase e ${}
+             const resB = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/praticar/ilha/${selectedTopico.id}`);
              if(resB.ok) lista = [await resB.json()];
           }
 
@@ -232,59 +228,51 @@ export default function Home() {
       const userResp = alternativa.trim().toUpperCase();
       const acertou = correta === userResp;
 
-      // --- LÓGICA DE XP ESCALONADO ---
       let xpQuestao = 0;
-      const dif = questaoAtual.dificuldade; // Certifique-se que o backend manda isso
+      const dif = questaoAtual.dificuldade;
 
       if (acertou) {
           if (dif === "Fácil") xpQuestao = 1;
           else if (dif === "Médio") xpQuestao = 3;
           else if (dif === "Difícil") xpQuestao = 5;
-          else xpQuestao = 1; // Padrão se não vier nada
+          else xpQuestao = 1;
 
           setFeedback(`✅ Correto! (+${xpQuestao} XP) ` + questaoAtual.explicacao);
           setScoreSessao(s => s + 1);
-          setXpGanhoSessao(s => s + xpQuestao); // Acumula para mostrar no final
+          setXpGanhoSessao(s => s + xpQuestao);
 
-          // Atualiza visualmente na hora
           if (perfil) setPerfil({ ...perfil, xp: perfil.xp + xpQuestao });
       } else {
           setFeedback(`❌ Incorreto. Correta: ${questaoAtual.correta}.\n\n${questaoAtual.explicacao}`);
       }
-      // ---------------------------------
 
       if (user) {
-          // Salva histórico
-          await fetch("process.env.NEXT_PUBLIC_API_URL/historico", {
+          // CORREÇÃO AQUI: Crase e ${}
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/historico`, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ user_id: user.id, question_id: questaoAtual.id, is_correct: acertou })
           });
           
-          // Salva XP no banco
           if (acertou && xpQuestao > 0) {
               await supabase.rpc("increment_xp", { quantidade: xpQuestao });
           }
       }
   }
 
-  // --- FUNÇÃO QUE FALTAVA ---
   async function avancarQuestao() {
       setFeedback(null);
-      // Se ainda tem questões na fila, avança o índice
       if (indiceQuestao + 1 < filaQuestoes.length) {
           setIndiceQuestao(i => i + 1);
       } else {
-          // Se acabou, chama a finalização
           await finalizarSessao();
       }
   }
- // --- FINALIZAR SESSÃO, APLICAR REGRAS E SALVAR ---
+
   async function finalizarSessao() {
       setSessaoConcluida(true);
       
-      // 1. Identifica se é Boss e define a Meta
-      const isBoss = nivelJogando === 4; // Índice 4 = Quinto nível (Boss)
-      const meta = isBoss ? 7 : 4;       // Boss exige 7/10, Checkpoint exige 4/5
+      const isBoss = nivelJogando === 4;
+      const meta = isBoss ? 7 : 4;
       
       const aprovado = scoreSessao >= meta;
 
@@ -292,19 +280,17 @@ export default function Home() {
           const novoNivel = nivelJogando + 1;
           console.log(`✅ Aprovado! Salvando progresso... Ilha ${selectedTopico.id} -> Nível ${novoNivel}`);
 
-          // 2. Bônus de XP do Boss (Se venceu o Boss)
           if (isBoss) {
               try {
                   await supabase.rpc("increment_xp", { quantidade: 15 });
-                  // Atualiza visualmente o XP bônus
                   setXpGanhoSessao(prev => prev + 15);
                   if (perfil) setPerfil((p: any) => ({ ...p, xp: p.xp + 15 }));
               } catch (e) { console.error("Erro ao dar bônus:", e); }
           }
 
           try {
-              // 3. Envia para o Backend (Persistência)
-              const res = await fetch("process.env.NEXT_PUBLIC_API_URL/progresso", {
+              // CORREÇÃO AQUI: Crase e ${}
+              const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -316,8 +302,6 @@ export default function Home() {
               
               if (res.ok) {
                   console.log("Progresso salvo no banco!");
-                  
-                  // 4. Atualiza LOCALMENTE (Para desbloquear o próximo cadeado na hora)
                   setMapaProgresso((prev) => {
                       const antigo = prev[selectedTopico.id] || 0;
                       return {
@@ -329,12 +313,12 @@ export default function Home() {
                   console.error("Erro no backend ao salvar progresso");
               }
 
-              // 5. Atualiza XP Total do Perfil
               await atualizarPerfil(user.id);
 
           } catch (e) { console.error("Erro de rede:", e); }
       }
   }
+
   function fecharQuiz() {
       setModoQuiz(false);
       setFilaQuestoes([]);
@@ -573,7 +557,6 @@ export default function Home() {
                         );
                     })}
                     <div className="mt-8 text-4xl opacity-50 grayscale">🏁</div>
-                    
                 </div>
              </motion.div>
           )}
