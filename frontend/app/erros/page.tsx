@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, AlertTriangle, CheckCircle, RefreshCcw, 
-  Brain, Activity, Calendar, Layers, ChevronDown, ChevronUp, Zap 
+  Brain, Calendar, Layers, ChevronDown, ChevronUp, Zap, Activity 
 } from "lucide-react";
 
 // --- CONFIGURAÇÃO SUPABASE ---
@@ -44,7 +44,7 @@ function QuizRevisao({
 
       // Salva acerto no histórico (Redenção)
       try {
-        await fetch("http://127.0.0.1:8000/historico", {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/historico`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, question_id: questaoAtual.id, is_correct: true })
         });
@@ -146,7 +146,7 @@ export default function ErrosPage() {
       setUser(session.user);
 
       try {
-        const res = await fetch(`http://127.0.0.1:8000/erros/${session.user.id}`);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/erros/${session.user.id}`);
         const data = await res.json();
         setTodosErros(data);
         setErrosVisiveis(data.slice(0, 30));
@@ -170,7 +170,7 @@ export default function ErrosPage() {
   const praticarSemelhante = async (questaoId: number) => {
     setLoadingSemelhante(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/praticar/semelhante/${questaoId}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/praticar/semelhante/${questaoId}`);
       if (!res.ok) throw new Error("Erro na IA");
       const novaQuestao = await res.json();
       setQuestoesParaRevisar([novaQuestao]);
