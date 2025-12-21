@@ -7,7 +7,7 @@ import { FileUp, Home, LayoutDashboard, User } from 'lucide-react';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "MediLingo",
+  title: "MedQuiz",
   description: "Sua plataforma de estudo. Estudar também é lazer!",
 };
 
@@ -26,7 +26,7 @@ export default function RootLayout({
         <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col flex-shrink-0 z-20">
           <div className="p-6">
             <h1 className="text-2xl font-bold text-[#0cb7f2] tracking-tight">
-              MediLingo
+              MedQuiz
             </h1>
           </div>
           
@@ -38,7 +38,17 @@ export default function RootLayout({
 
             <Link href="/praticar" className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-blue-50 hover:text-[#0cb7f2] rounded-xl transition-all">
               <LayoutDashboard size={20} />
-              <span className="font-medium">Praticar</span>
+              <span className="font-medium">Praticar (em breve)</span>
+            </Link>
+
+            <Link href="/erros" className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-blue-50 hover:text-[#0cb7f2] rounded-xl transition-all">
+              <LayoutDashboard size={20} />
+              <span className="font-medium">Verificar Erros</span>
+            </Link>
+
+            <Link href="/social" className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-blue-50 hover:text-[#0cb7f2] rounded-xl transition-all">
+              <LayoutDashboard size={20} />
+              <span className="font-medium">Social (em breve)</span>
             </Link>
 
             <Link href="/contribuir" className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-blue-50 hover:text-[#0cb7f2] rounded-xl transition-all">
@@ -76,7 +86,17 @@ export default function RootLayout({
 
           <Link href="/praticar" className="flex flex-col items-center gap-1 text-slate-500 hover:text-[#0cb7f2]">
             <LayoutDashboard size={24} />
-            <span className="text-[10px] font-medium">Praticar</span>
+            <span className="text-[10px] font-medium">Praticar (em breve)</span>
+          </Link>
+
+          <Link href="/erros" className="flex flex-col items-center gap-1 text-slate-500 hover:text-[#0cb7f2]">
+            <LayoutDashboard size={24} />
+            <span className="text-[10px] font-medium">Verificar Erros</span>
+          </Link>
+
+          <Link href="/social" className="flex flex-col items-center gap-1 text-slate-500 hover:text-[#0cb7f2]">
+            <LayoutDashboard size={24} />
+            <span className="text-[10px] font-medium">Social (em breve)</span>
           </Link>
 
           {/* Destaque central para ação principal */}
