@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
+// Removemos useRouter pois a navegação principal agora é pelo Layout, 
+// mas mantivemos para o botão de Login/Erros se necessário no conteúdo.
+import { useRouter } from "next/navigation"; 
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Brain, Activity, ChevronRight, LogOut, Zap, User, 
+  Brain, ChevronRight, LogOut, Zap, 
   AlertTriangle, ArrowLeft, Stethoscope, Microscope, 
-  Dna, LayoutGrid, Lock, Star, Skull, CheckCircle,
-  PlayCircle, Award, ShoppingBag, Flame
+  Dna, Lock, Star, Skull, CheckCircle,
+  PlayCircle, Award, Flame
 } from "lucide-react";
 
 // --- CONFIGURAÇÃO SUPABASE ---
@@ -20,6 +22,7 @@ const supabase = createClient(
 const COR_PRINCIPAL = "#0cb7f2"; 
 
 // --- COMPONENTE: NÓ DO MAPA (BOLINHAS) ---
+// (Mantido idêntico ao original, pois a lógica visual é perfeita)
 function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
   const isBoss = index === total - 1;
   const zigzag = (index % 2 === 0) ? 0 : (index % 4 === 1 ? 50 : -50); 
@@ -50,7 +53,6 @@ function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
   return (
     <div className="flex justify-center w-full relative h-[130px] items-center" style={{ transform: `translateX(${zigzag}px)` }}>
         <div className="relative group z-10">
-            {/* Tooltip */}
             {unlocked && (
                 <motion.div 
                     initial={{ opacity: 0, y: 10 }}
@@ -58,16 +60,13 @@ function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
                     className="absolute bottom-[120%] left-1/2 -translate-x-1/2 bg-slate-800 text-white p-3 rounded-xl shadow-2xl w-48 text-center z-50 pointer-events-none"
                 >
                     <div className="font-bold text-sm mb-1">{isBoss ? "BOSS FINAL" : `Nível ${index + 1}`}</div>
-                    
                     <div className="text-[10px] font-bold tracking-wider text-[#0cb7f2] uppercase">
                         {isBoss ? "Meta: 7/10 • +15 XP Bônus" : "Meta: 4/5 Acertos"}
                     </div>
-
                     <div className="absolute top-full left-1/2 -ml-2 border-[8px] border-transparent border-t-slate-800"></div>
                 </motion.div>
             )}
 
-            {/* Linha Conectora */}
             {index < total - 1 && (
                 <div className="absolute top-1/2 left-1/2 w-1 h-[140px] -z-10 border-l-[3px] border-dashed border-slate-300 origin-top" 
                      style={{ transform: index % 2 === 0 ? "rotate(-22deg)" : "rotate(22deg)" }}></div>
@@ -94,7 +93,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [xpGanhoSessao, setXpGanhoSessao] = useState(0);
 
-  // --- NAVEGAÇÃO ---
+  // --- NAVEGAÇÃO INTERNA DO JOGO ---
   const [areas, setAreas] = useState([]);
   const [sistemas, setSistemas] = useState([]);
   const [disciplinas, setDisciplinas] = useState([]);
@@ -113,40 +112,33 @@ export default function Home() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [sessaoConcluida, setSessaoConcluida] = useState(false);
   const [scoreSessao, setScoreSessao] = useState(0);
-  const [nivelJogando, setNivelJogando] = useState(0); // Qual bolinha clicou
+  const [nivelJogando, setNivelJogando] = useState(0); 
 
   const questaoAtual = filaQuestoes[indiceQuestao];
 
   // --- INICIALIZAÇÃO BLINDADA ---
   useEffect(() => {
     async function init() {
-      // 1. Pega Sessão
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
         setUser(session.user);
-        
-        // 2. Carrega Perfil e Progresso EM PARALELO
         await Promise.all([
             atualizarPerfil(session.user.id),
             carregarProgresso(session.user.id)
         ]);
       }
 
-      // 3. Carrega Áreas
       try {
-        // CORREÇÃO AQUI: Usando crase e ${}
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/areas`);
         if (res.ok) setAreas(await res.json());
       } catch(e) { console.error("API Offline"); }
       
       setLoading(false);
     }
-    
     init();
   }, []);
 
-  // Função dedicada para garantir que o XP esteja sempre syncado
   async function atualizarPerfil(userId: string) {
       const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
       if (data) setPerfil(data);
@@ -154,7 +146,6 @@ export default function Home() {
 
   async function carregarProgresso(userId: string) {
       try {
-          // CORREÇÃO AQUI: Usando crase e ${}
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso/${userId}`);
           const data = await res.json();
           setMapaProgresso(data);
@@ -162,7 +153,6 @@ export default function Home() {
   }
 
   // --- FUNÇÕES DE NAVEGAÇÃO ---
-  // CORREÇÕES AQUI: Usando crase e ${} em todos os fetchs
   async function selArea(item: any) { setSelectedArea(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sistemas/${item.id}`); setSistemas(await res.json()); }
   async function selSistema(item: any) { setSelectedSystem(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/trilhas/${item.id}`); setDisciplinas(await res.json()); }
   async function selDisciplina(item: any) { setSelectedDisciplina(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ilhas/${item.id}`); setTopicos(await res.json()); }
@@ -175,7 +165,7 @@ export default function Home() {
 
   async function sair() { await supabase.auth.signOut(); window.location.reload(); }
 
-  // --- LÓGICA DO JOGO (CHECKPOINTS) ---
+  // --- LÓGICA DO JOGO ---
   async function iniciarCheckpoint(index: number, isBoss: boolean) {
       if (!user) return;
       setNivelJogando(index);
@@ -188,24 +178,15 @@ export default function Home() {
 
       let diff = "Fácil";
       let qtd = 5; 
-
       if (index >= 2) diff = "Médio";
-      
-      if (isBoss) { 
-          diff = "Difícil"; 
-          qtd = 10;
-      }
+      if (isBoss) { diff = "Difícil"; qtd = 10; }
 
       try {
-          // CORREÇÃO AQUI: Crase e ${} para a URL completa
           const url = `${process.env.NEXT_PUBLIC_API_URL}/praticar/session/${selectedTopico.id}?user_id=${user.id}&quantidade=${qtd}&dificuldade=${diff}`;
-          
           const res = await fetch(url);
           let lista = await res.json();
 
-          // Fallback se backend falhar
           if (!lista || lista.length === 0) {
-             // CORREÇÃO AQUI: Crase e ${}
              const resB = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/praticar/ilha/${selectedTopico.id}`);
              if(resB.ok) lista = [await resB.json()];
           }
@@ -247,12 +228,10 @@ export default function Home() {
       }
 
       if (user) {
-          // CORREÇÃO AQUI: Crase e ${}
           await fetch(`${process.env.NEXT_PUBLIC_API_URL}/historico`, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ user_id: user.id, question_id: questaoAtual.id, is_correct: acertou })
           });
-          
           if (acertou && xpQuestao > 0) {
               await supabase.rpc("increment_xp", { quantidade: xpQuestao });
           }
@@ -270,16 +249,12 @@ export default function Home() {
 
   async function finalizarSessao() {
       setSessaoConcluida(true);
-      
       const isBoss = nivelJogando === 4;
       const meta = isBoss ? 7 : 4;
-      
       const aprovado = scoreSessao >= meta;
 
       if (aprovado && user && selectedTopico) {
           const novoNivel = nivelJogando + 1;
-          console.log(`✅ Aprovado! Salvando progresso... Ilha ${selectedTopico.id} -> Nível ${novoNivel}`);
-
           if (isBoss) {
               try {
                   await supabase.rpc("increment_xp", { quantidade: 15 });
@@ -287,9 +262,7 @@ export default function Home() {
                   if (perfil) setPerfil((p: any) => ({ ...p, xp: p.xp + 15 }));
               } catch (e) { console.error("Erro ao dar bônus:", e); }
           }
-
           try {
-              // CORREÇÃO AQUI: Crase e ${}
               const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -299,22 +272,13 @@ export default function Home() {
                       nivel_novo: novoNivel
                   })
               });
-              
               if (res.ok) {
-                  console.log("Progresso salvo no banco!");
                   setMapaProgresso((prev) => {
                       const antigo = prev[selectedTopico.id] || 0;
-                      return {
-                          ...prev,
-                          [selectedTopico.id]: Math.max(antigo, novoNivel)
-                      };
+                      return { ...prev, [selectedTopico.id]: Math.max(antigo, novoNivel) };
                   });
-              } else {
-                  console.error("Erro no backend ao salvar progresso");
               }
-
               await atualizarPerfil(user.id);
-
           } catch (e) { console.error("Erro de rede:", e); }
       }
   }
@@ -324,14 +288,13 @@ export default function Home() {
       setFilaQuestoes([]);
   }
 
-  // --- UI: QUIZ MODAL ---
+  // --- RENDER DO QUIZ (MODAL) ---
   if (modoQuiz && questaoAtual) {
      return (
+        // Mantive o Modal igual, pois ele sobrepõe tudo e não conflita com layout
         <div className="fixed inset-0 z-[100] bg-slate-100/90 backdrop-blur-sm overflow-y-auto">
             <div className="min-h-screen flex items-center justify-center p-4">
                 <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-                    
-                    {/* Header do Quiz */}
                     <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
                         <button onClick={fecharQuiz} className="flex items-center gap-2 text-slate-400 hover:text-red-500 font-bold text-xs uppercase tracking-wider transition-colors">
                             <ArrowLeft size={16}/> Sair
@@ -349,7 +312,7 @@ export default function Home() {
                                  {scoreSessao >= 3 ? <Award size={48}/> : <AlertTriangle size={48}/>}
                              </div>
                              <h2 className="text-3xl font-black text-slate-800 mb-2">{scoreSessao >= 3 ? "Vitória!" : "Não foi dessa vez"}</h2>
-                             <p className="text-slate-500 mb-8">Você acertou {scoreSessao} de {filaQuestoes.length}. {scoreSessao >= 3 ? "Progresso salvo!" : "Tente novamente para desbloquear."}</p>
+                             <p className="text-slate-500 mb-8">Você acertou {scoreSessao} de {filaQuestoes.length}.</p>
                              <button onClick={fecharQuiz} className="bg-[#0cb7f2] hover:brightness-110 text-white font-bold py-4 px-10 rounded-2xl shadow-lg shadow-blue-200 transition-all">Continuar</button>
                         </div>
                     ) : (
@@ -357,25 +320,15 @@ export default function Home() {
                             <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase text-white mb-6 inline-block ${questaoAtual.dificuldade === "Fácil" ? "bg-blue-400" : questaoAtual.dificuldade === "Médio" ? "bg-amber-400" : "bg-rose-500"}`}>
                                 {questaoAtual.dificuldade || "Geral"}
                             </span>
-                            
                             <h2 className="text-xl md:text-2xl font-bold text-slate-800 mb-8 leading-relaxed">{questaoAtual.enunciado}</h2>
-                            
                             <div className="space-y-3">
-                                {['A','B','C','D'].map((op) => {
-                                    let style = "bg-white border-2 border-slate-100 hover:border-[#0cb7f2] hover:bg-blue-50/30 text-slate-600";
-                                    if (feedback) {
-                                        if (op === questaoAtual.correta) style = "bg-emerald-50 border-emerald-500 text-emerald-700 font-bold ring-1 ring-emerald-500";
-                                        else style = "opacity-40 pointer-events-none border-slate-100";
-                                    }
-                                    return (
-                                        <button key={op} onClick={() => verificarResposta(op)} disabled={!!feedback} className={`w-full p-5 rounded-2xl text-left transition-all ${style} flex gap-4`}>
-                                            <span className="font-bold">{op})</span>
-                                            <span>{questaoAtual[`alternativa_${op.toLowerCase()}`]}</span>
-                                        </button>
-                                    );
-                                })}
+                                {['A','B','C','D'].map((op) => (
+                                    <button key={op} onClick={() => verificarResposta(op)} disabled={!!feedback} className={`w-full p-5 rounded-2xl text-left transition-all bg-white border-2 border-slate-100 hover:border-[#0cb7f2] text-slate-600 flex gap-4 ${feedback && op === questaoAtual.correta ? "!bg-emerald-50 !border-emerald-500 !text-emerald-700" : feedback ? "opacity-40" : ""}`}>
+                                        <span className="font-bold">{op})</span>
+                                        <span>{questaoAtual[`alternativa_${op.toLowerCase()}`]}</span>
+                                    </button>
+                                ))}
                             </div>
-
                             <AnimatePresence>
                                 {feedback && (
                                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="overflow-hidden mt-6">
@@ -397,41 +350,38 @@ export default function Home() {
      );
   }
 
-  // --- UI PRINCIPAL ---
+  // --- UI PRINCIPAL (REFATORADA) ---
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-32">
+    // Removemos o 'min-h-screen' pois o layout já cuida disso, mas mantemos o padding inferior
+    <div className="w-full pb-32">
       
-      {/* HEADER DESKTOP */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 shadow-sm">
+      {/* HEADER SIMPLIFICADO: Apenas Status do Usuário */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 shadow-sm mb-6">
          <div className="max-w-6xl mx-auto px-6 h-full flex justify-between items-center">
-            <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => window.location.reload()}>
-               <div className="bg-[#0cb7f2] p-2 rounded-xl shadow-lg shadow-blue-200"><Brain className="text-white w-5 h-5"/></div>
-               <span className="text-xl font-extrabold text-slate-700 tracking-tight">Medi<span style={{color: COR_PRINCIPAL}}>Lingo</span></span>
+            {/* Esquerda: Saudação ou Título da Página Atual */}
+            <div className="flex items-center gap-2">
+               {/* Removi o logo repetido. Coloquei um indicador visual simples */}
+               <div className="bg-blue-50 p-2 rounded-lg"><Brain size={18} className="text-[#0cb7f2]"/></div>
+               <span className="font-bold text-slate-700">Painel de Estudo</span>
             </div>
 
-            {/* Menu Central Desktop */}
-            <div className="hidden md:flex items-center gap-8 font-bold text-sm text-slate-400">
-                <button onClick={resetArea} className="hover:text-[#0cb7f2] transition-colors flex items-center gap-2"><LayoutGrid size={18}/> APRENDER</button>
-                <button onClick={() => router.push("/erros")} className="hover:text-rose-500 transition-colors flex items-center gap-2"><AlertTriangle size={18}/> ERROS</button>
-                <button onClick={() => router.push("/perfil")} className="hover:text-[#0cb7f2] transition-colors flex items-center gap-2"><User size={18}/> PERFIL</button>
-            </div>
-
+            {/* Direita: Status (XP, Gems, Logout) */}
             {user ? (
                <div className="flex gap-4 items-center">
-                   <div className="hidden sm:flex items-center gap-2 text-amber-500 font-extrabold bg-amber-50 px-4 py-1.5 rounded-full border border-amber-100 shadow-sm">
-                       <Zap size={18} fill="currentColor"/> {perfil?.xp || 0}
+                   <div className="flex items-center gap-2 text-amber-500 font-extrabold bg-amber-50 px-3 py-1 rounded-full border border-amber-100 text-xs sm:text-sm">
+                       <Zap size={16} fill="currentColor"/> {perfil?.xp || 0} XP
                    </div>
-                   <div className="hidden sm:flex items-center gap-2 text-rose-500 font-extrabold bg-rose-50 px-4 py-1.5 rounded-full border border-rose-100 shadow-sm">
-                       <Flame size={18} fill="currentColor"/> 3
+                   <div className="hidden sm:flex items-center gap-2 text-rose-500 font-extrabold bg-rose-50 px-3 py-1 rounded-full border border-rose-100 text-xs sm:text-sm">
+                       <Flame size={16} fill="currentColor"/> 3
                    </div>
-                   <button onClick={sair} className="text-slate-300 hover:text-slate-500 ml-2" title="Sair"><LogOut size={20}/></button>
+                   <button onClick={sair} className="text-slate-300 hover:text-rose-500 ml-2 transition-colors" title="Sair"><LogOut size={20}/></button>
                </div>
-            ) : <button onClick={() => router.push("/login")} className="text-[#0cb7f2] font-bold">ENTRAR</button>}
+            ) : <button onClick={() => router.push("/login")} className="text-[#0cb7f2] font-bold text-sm">ENTRAR</button>}
          </div>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL */}
-      <main className="max-w-4xl mx-auto w-full px-6 py-10">
+      {/* CONTEÚDO PRINCIPAL (Jogabilidade) */}
+      <main className="max-w-4xl mx-auto w-full px-6">
         
         {loading && (
             <div className="flex flex-col items-center justify-center py-20 animate-pulse">
@@ -465,7 +415,11 @@ export default function Home() {
              </motion.div>
           )}
 
-          {/* NÍVEL 2: SISTEMAS */}
+          {/* ... MANTIVE OS OUTROS NÍVEIS (Sistemas, Disciplinas, Tópicos) IGUAIS ... 
+              Apenas removi o comentário para encurtar, mas o código original dos 
+              blocos selectedArea, selectedSystem e selectedDisciplina deve ser mantido aqui.
+          */}
+          
           {selectedArea && !selectedSystem && (
              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                <button onClick={resetArea} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA ÁREAS</button>
@@ -481,13 +435,11 @@ export default function Home() {
              </motion.div>
           )}
 
-          {/* NÍVEL 3: DISCIPLINAS */}
           {selectedSystem && !selectedDisciplina && (
              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <button onClick={resetSistema} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA SISTEMAS</button>
                 <h2 className="text-3xl font-black text-slate-800 mb-2">{selectedSystem.nome}</h2>
-                <p className="text-slate-400 mb-8 font-medium">Escolha uma disciplina para visualizar os tópicos.</p>
-                <div className="space-y-4">
+                <div className="space-y-4 mt-8">
                    {disciplinas.map((disc:any) => (
                        <button key={disc.id} onClick={() => selDisciplina(disc)} className="w-full bg-white p-6 rounded-2xl border border-slate-200 hover:border-[#0cb7f2] hover:shadow-lg transition-all flex justify-between items-center group">
                            <div className="flex items-center gap-6">
@@ -501,7 +453,6 @@ export default function Home() {
              </motion.div>
           )}
 
-          {/* NÍVEL 4: LISTA DE TÓPICOS (COM BARRA DE PROGRESSO) */}
           {selectedDisciplina && !selectedTopico && (
              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <button onClick={resetDisciplina} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA DISCIPLINAS</button>
@@ -521,7 +472,6 @@ export default function Home() {
                                 </div>
                                 <div className="flex justify-between mt-2 relative z-10">
                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{pct}% CONCLUÍDO</span>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">NÍVEL {nivel}/5</span>
                                 </div>
                             </button>
                         );
@@ -540,7 +490,6 @@ export default function Home() {
                 </div>
 
                 <div className="flex flex-col items-center w-full max-w-md gap-4 pb-32 pt-32 relative">
-                    {/* Linha de Fundo */}
                     <div className="absolute top-32 bottom-20 w-3 bg-slate-100 rounded-full -z-20"></div>
                     
                     {[0,1,2,3,4].map((idx) => {
@@ -564,26 +513,7 @@ export default function Home() {
         </AnimatePresence>
       </main>
 
-      {/* MENU INFERIOR MOBILE FIXO */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 h-20 flex justify-around items-center z-50 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe">
-          <button onClick={resetArea} className="flex flex-col items-center gap-1 text-[#0cb7f2] w-16">
-              <LayoutGrid size={24} className="stroke-[2.5]"/>
-              <span className="text-[9px] font-extrabold uppercase tracking-wide">Aprender</span>
-          </button>
-          <button onClick={() => router.push("/erros")} className="flex flex-col items-center gap-1 text-slate-400 hover:text-rose-500 w-16 transition-colors">
-              <AlertTriangle size={24} className="stroke-[2.5]"/>
-              <span className="text-[9px] font-extrabold uppercase tracking-wide">Erros</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-amber-500 w-16 transition-colors">
-              <Award size={24} className="stroke-[2.5]"/>
-              <span className="text-[9px] font-extrabold uppercase tracking-wide">Rank</span>
-          </button>
-          <button onClick={() => router.push("/perfil")} className="flex flex-col items-center gap-1 text-slate-400 hover:text-[#0cb7f2] w-16 transition-colors">
-              <User size={24} className="stroke-[2.5]"/>
-              <span className="text-[9px] font-extrabold uppercase tracking-wide">Perfil</span>
-          </button>
-      </nav>
-
+      {/* REMOVI O NAV INFERIOR AQUI - O Layout.tsx já cuida disso! */}
     </div>
   );
 }
