@@ -3,7 +3,7 @@ import { FileUp, Info, ExternalLink, ShieldCheck, UploadCloud } from 'lucide-rea
 
 export default function ContribuirPage() {
   // COLOQUE SEU LINK AQUI (Não precisa do ?embedded=true mais)
-  const googleFormUrl = "LINK_DO_FORMULARIO_AQUI"; 
+  const googleFormUrl = "https://forms.gle/E1gTRVkXhsCGFswo7"; 
 
   return (
     <div className="w-full min-h-screen bg-slate-50 p-6 md:p-12 pb-32">
