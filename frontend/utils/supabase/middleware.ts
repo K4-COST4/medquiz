@@ -29,9 +29,27 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANTE: Do not remove auth.getUser()
-  // Isso garante que o token seja atualizado se necessário
-  await supabase.auth.getUser()
+  // 1. Verifica quem é o usuário
+  // IMPORTANTE: Não removemos o getUser(), ele garante a segurança do token
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  // 2. Regras de Proteção de Rotas
+
+  // REGRA A: Se o usuário JÁ está logado e tenta acessar '/login' ou '/', manda pro Dashboard
+  if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    return NextResponse.redirect(url)
+  }
+
+  // REGRA B: Se o usuário NÃO está logado e tenta acessar '/dashboard', manda pro Login
+  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
 
   return supabaseResponse
 }
