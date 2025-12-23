@@ -33,35 +33,22 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // --- CONFIGURAÇÃO DA SUA ROTA PRINCIPAL ---
-  // Digite aqui o nome da pasta da sua página inicial real.
-  // Exemplo: se sua página está em app/trilhas/page.tsx, coloque '/trilhas'
-  // Se sua página principal for a própria raiz (app/page.tsx), deixe apenas '/'
-  const ROTA_PRINCIPAL = '/' 
-  // ^^^ MUDE ISSO AQUI ^^^
-
-  // REGRA 1: Usuário LOGADO tentando acessar Login ou Raiz
-  // Se ele já tá logado, manda ele direto pra sua página principal
-  if (user && (request.nextUrl.pathname.startsWith('/') || request.nextUrl.pathname === '/')) {
-    
-    // Se a rota principal for a própria raiz, não redireciona para evitar loop
-    if (request.nextUrl.pathname === ROTA_PRINCIPAL) {
-      return supabaseResponse
-    }
-
+  // --- CONFIGURAÇÃO DE REDIRECIONAMENTO ---
+  
+  // 1. Se o usuário estiver logado e tentar acessar a tela de login, manda para a Home
+  if (user && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
-    url.pathname = ROTA_PRINCIPAL
+    url.pathname = '/' // Redireciona para a página inicial
     return NextResponse.redirect(url)
   }
 
-  // REGRA 2: Usuário NÃO LOGADO tentando acessar área restrita
-  // Aqui você lista as rotas que SÓ quem está logado pode ver
-  // Adicione suas rotas protegidas dentro do parênteses
+  // 2. Proteger rotas que exigem login (ex: Perfil, Erros)
+  // Adicione aqui as pastas que só usuários logados podem ver
   if (!user && (
-      request.nextUrl.pathname.startsWith('/praticar') || 
-      request.nextUrl.pathname.startsWith('/perfil') ||
-      request.nextUrl.pathname.startsWith('/erros')
-     )) {
+      request.nextUrl.pathname.startsWith('/perfil') || 
+      request.nextUrl.pathname.startsWith('/erros') ||
+      request.nextUrl.pathname.startsWith('/contribuir')
+  )) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
