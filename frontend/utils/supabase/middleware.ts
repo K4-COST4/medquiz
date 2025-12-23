@@ -29,23 +29,39 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // 1. Verifica quem é o usuário
-  // IMPORTANTE: Não removemos o getUser(), ele garante a segurança do token
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // 2. Regras de Proteção de Rotas
+  // --- CONFIGURAÇÃO DA SUA ROTA PRINCIPAL ---
+  // Digite aqui o nome da pasta da sua página inicial real.
+  // Exemplo: se sua página está em app/trilhas/page.tsx, coloque '/trilhas'
+  // Se sua página principal for a própria raiz (app/page.tsx), deixe apenas '/'
+  const ROTA_PRINCIPAL = '/' 
+  // ^^^ MUDE ISSO AQUI ^^^
 
-  // REGRA A: Se o usuário JÁ está logado e tenta acessar '/login' ou '/', manda pro Dashboard
-  if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/')) {
+  // REGRA 1: Usuário LOGADO tentando acessar Login ou Raiz
+  // Se ele já tá logado, manda ele direto pra sua página principal
+  if (user && (request.nextUrl.pathname.startsWith('/') || request.nextUrl.pathname === '/')) {
+    
+    // Se a rota principal for a própria raiz, não redireciona para evitar loop
+    if (request.nextUrl.pathname === ROTA_PRINCIPAL) {
+      return supabaseResponse
+    }
+
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    url.pathname = ROTA_PRINCIPAL
     return NextResponse.redirect(url)
   }
 
-  // REGRA B: Se o usuário NÃO está logado e tenta acessar '/dashboard', manda pro Login
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+  // REGRA 2: Usuário NÃO LOGADO tentando acessar área restrita
+  // Aqui você lista as rotas que SÓ quem está logado pode ver
+  // Adicione suas rotas protegidas dentro do parênteses
+  if (!user && (
+      request.nextUrl.pathname.startsWith('/praticar') || 
+      request.nextUrl.pathname.startsWith('/perfil') ||
+      request.nextUrl.pathname.startsWith('/erros')
+     )) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
