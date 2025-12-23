@@ -47,7 +47,7 @@ export async function updateSession(request: NextRequest) {
   // A. Usuário Logado tentando acessar Login/Cadastro -> Manda pro Dashboard
   if (user && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard' // Mudei de '/' para '/dashboard' para ser mais explícito
+    url.pathname = '/' // Mudei de '/' para '/dashboard' para ser mais explícito
     return NextResponse.redirect(url)
   }
 
@@ -57,7 +57,6 @@ export async function updateSession(request: NextRequest) {
       request.nextUrl.pathname.startsWith('/perfil') || 
       request.nextUrl.pathname.startsWith('/erros') ||
       request.nextUrl.pathname.startsWith('/contribuir') ||
-      request.nextUrl.pathname.startsWith('/dashboard') ||
       request.nextUrl.pathname.startsWith('/praticar')
   )) {
     const url = request.nextUrl.clone()
