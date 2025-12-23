@@ -42,28 +42,27 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // --- REGRAS DE PROTEÇÃO ---
+  // --- REGRAS ATUALIZADAS ---
 
-  // A. Usuário Logado tentando acessar Login/Cadastro -> Manda pro Dashboard
+  // 1. Usuário LOGADO tentando acessar Login -> Manda para Dashboard
   if (user && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/' // Mudei de '/' para '/dashboard' para ser mais explícito
+    url.pathname = '/dashboard' // MUDANÇA AQUI
     return NextResponse.redirect(url)
   }
 
-  // B. Rotas Protegidas (Adicionei '/dashboard' e '/trilhas' baseado no nosso escopo)
-  // Se NÃO tem usuário e tenta acessar área restrita -> Manda pro Login
+  // 2. Proteção de Rotas
+  // Se NÃO tem usuário e tenta acessar Dashboard ou outras áreas restritas
   if (!user && (
+      request.nextUrl.pathname.startsWith('/dashboard') || // ADICIONADO
       request.nextUrl.pathname.startsWith('/perfil') || 
       request.nextUrl.pathname.startsWith('/erros') ||
-      request.nextUrl.pathname.startsWith('/contribuir') ||
-      request.nextUrl.pathname.startsWith('/praticar')
+      request.nextUrl.pathname.startsWith('/praticar') // Ainda protegida, mas não é mais a home
   )) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // Retorna a resposta com os cookies atualizados
   return supabaseResponse
 }
