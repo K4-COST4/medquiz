@@ -4,30 +4,34 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  // 'next' é para onde redirecionar o usuário após logar (ex: /dashboard)
-  const next = searchParams.get('next') ?? '/'
+  const next = searchParams.get('next') ?? '/dashboard'
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
-      // Cria um redirect para a página de destino
-      const forwardedHost = request.headers.get('x-forwarded-host') // necessário se usar load balancers
+      const forwardedHost = request.headers.get('x-forwarded-host') // Vercel
       const isLocalEnv = process.env.NODE_ENV === 'development'
+
+      // Prioridade de Redirecionamento:
+      // 1. Se for local, usa a origem local.
+      // 2. Se tiver forwardedHost (Vercel), usa ele.
+      // 3. Fallback: Tenta usar a variável de ambiente do site (Configure isso no seu deploy!)
       
       if (isLocalEnv) {
-        // Desenvolvimento: localhost
         return NextResponse.redirect(`${origin}${next}`)
       } else if (forwardedHost) {
-        // Produção: Vercel/Outros
         return NextResponse.redirect(`https://${forwardedHost}${next}`)
+      } else if (process.env.NEXT_PUBLIC_SITE_URL) {
+        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}${next}`)
       } else {
+        // Último recurso: usa o origin da request, mas isso pode falhar em containers
         return NextResponse.redirect(`${origin}${next}`)
       }
     }
   }
 
-  // Se der erro, manda para uma página de erro
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
+  // Se der erro, manda para login com erro
+  return NextResponse.redirect(`${origin}/login?message=Erro ao autenticar`)
 }
