@@ -16,6 +16,10 @@
 # testing
 /coverage
 
+/scripts
+/scripts*
+/scripts/.env
+
 # next.js
 /.next/
 /out/
