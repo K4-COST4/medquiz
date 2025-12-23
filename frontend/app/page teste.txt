@@ -1,287 +1,519 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { motion } from 'framer-motion'
+import { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+// Removemos useRouter pois a navegação principal agora é pelo Layout, 
+// mas mantivemos para o botão de Login/Erros se necessário no conteúdo.
+import { useRouter } from "next/navigation"; 
+import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Brain, 
-  Flame, 
-  Swords, 
-  Trophy, 
-  ArrowRight, 
-  CheckCircle2, 
-  Activity 
-} from 'lucide-react'
+  Brain, ChevronRight, LogOut, Zap, 
+  AlertTriangle, ArrowLeft, Stethoscope, Microscope, 
+  Dna, Lock, Star, Skull, CheckCircle,
+  PlayCircle, Award, Flame
+} from "lucide-react";
 
-// --- COMPONENTE 1: O WIDGET DE QUESTÃO (A ISCA) ---
-// UX: Simula uma questão real. Ao clicar, dá o feedback visual mas pede login para continuar.
-const DemoQuestionCard = () => {
-  const [selected, setSelected] = useState<string | null>(null)
+// --- CONFIGURAÇÃO SUPABASE ---
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-  const handleSelect = (id: string) => {
-    setSelected(id)
-    // Aqui poderíamos abrir um Modal de Login após 500ms
-    // setTimeout(() => router.push('/login'), 800) 
+const COR_PRINCIPAL = "#0cb7f2"; 
+
+// --- COMPONENTE: NÓ DO MAPA (BOLINHAS) ---
+// (Mantido idêntico ao original, pois a lógica visual é perfeita)
+function CheckpointNode({ index, total, onClick, unlocked, completed }: any) {
+  const isBoss = index === total - 1;
+  const zigzag = (index % 2 === 0) ? 0 : (index % 4 === 1 ? 50 : -50); 
+  
+  let baseColor = "bg-blue-500 border-blue-400 shadow-blue-200 ring-4 ring-blue-50"; 
+  let iconColor = "text-white";
+  let size = "w-[80px] h-[80px]";
+  
+  if (index >= 2 && !isBoss) baseColor = "bg-amber-400 border-amber-300 shadow-amber-200 ring-4 ring-amber-50";
+  if (isBoss) {
+      baseColor = "bg-rose-500 border-rose-400 shadow-rose-200 ring-4 ring-rose-50";
+      size = "w-[100px] h-[100px]";
   }
 
+  let finalClass = `shadow-xl ${baseColor} cursor-pointer hover:scale-110 active:scale-95 transition-all duration-300`;
+  let icon = <Star className="w-8 h-8 text-white fill-white/20" />;
+  
+  if (!unlocked) {
+      finalClass = "bg-slate-200 border-slate-300 shadow-none cursor-not-allowed grayscale opacity-60 ring-4 ring-slate-100";
+      icon = <Lock className="w-6 h-6 text-slate-400" />;
+  } else if (completed) {
+      icon = <CheckCircle className="w-8 h-8 text-white font-bold" />;
+      finalClass += " brightness-110";
+  }
+
+  if (isBoss && unlocked) icon = <Skull className="w-10 h-10 text-white animate-pulse" />;
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8 }}
-      className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
-    >
-      {/* Header do Card - Estilo Jogo */}
-      <div className="bg-slate-800/50 p-4 flex justify-between items-center border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <span className="bg-red-500/20 text-red-400 text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">
-            Emergência
-          </span>
-          <span className="text-slate-400 text-xs font-mono">ID: #8291</span>
-        </div>
-        <div className="flex items-center gap-1 text-yellow-500">
-          <Flame size={16} fill="currentColor" />
-          <span className="text-xs font-bold">Hard</span>
-        </div>
-      </div>
+    <div className="flex justify-center w-full relative h-[130px] items-center" style={{ transform: `translateX(${zigzag}px)` }}>
+        <div className="relative group z-10">
+            {unlocked && (
+                <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    whileHover={{ opacity: 1, y: 0 }}
+                    className="absolute bottom-[120%] left-1/2 -translate-x-1/2 bg-slate-800 text-white p-3 rounded-xl shadow-2xl w-48 text-center z-50 pointer-events-none"
+                >
+                    <div className="font-bold text-sm mb-1">{isBoss ? "BOSS FINAL" : `Nível ${index + 1}`}</div>
+                    <div className="text-[10px] font-bold tracking-wider text-[#0cb7f2] uppercase">
+                        {isBoss ? "Meta: 7/10 • +15 XP Bônus" : "Meta: 4/5 Acertos"}
+                    </div>
+                    <div className="absolute top-full left-1/2 -ml-2 border-[8px] border-transparent border-t-slate-800"></div>
+                </motion.div>
+            )}
 
-      {/* Corpo da Questão */}
-      <div className="p-6 space-y-4">
-        <p className="text-slate-200 text-sm leading-relaxed">
-          Paciente, 45 anos, chega ao PS com dor torácica súbita e dispneia. 
-          ECG demonstra supradesnivelamento do segmento ST em V1-V4. 
-          Qual a conduta imediata prioritária (MONA)?
-        </p>
+            {index < total - 1 && (
+                <div className="absolute top-1/2 left-1/2 w-1 h-[140px] -z-10 border-l-[3px] border-dashed border-slate-300 origin-top" 
+                     style={{ transform: index % 2 === 0 ? "rotate(-22deg)" : "rotate(22deg)" }}></div>
+            )}
 
-        {/* Alternativas Interativas */}
-        <div className="space-y-2 mt-4">
-          {[
-            { id: 'A', text: 'Solicitar Raio-X de Tórax' },
-            { id: 'B', text: 'Administrar AAS e Oxigênio', correct: true },
-            { id: 'C', text: 'Realizar Ecocardiograma' },
-          ].map((option) => (
-            <button
-              key={option.id}
-              onClick={() => handleSelect(option.id)}
-              className={`w-full text-left p-3 rounded-lg text-sm transition-all duration-200 border flex items-center justify-between group
-                ${selected === option.id 
-                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_15px_rgba(79,70,229,0.5)]' 
-                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600 hover:bg-slate-900'
-                }`}
+            <button 
+                onClick={() => unlocked && onClick(index, isBoss)}
+                className={`relative ${size} rounded-full flex items-center justify-center border-[5px] border-white ${finalClass}`}
             >
-              <div className="flex items-center gap-3">
-                <span className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold border
-                   ${selected === option.id ? 'border-white/30 bg-white/20' : 'border-slate-700 bg-slate-900'}
-                `}>
-                  {option.id}
-                </span>
-                {option.text}
-              </div>
-              
-              {/* O "Hook": Botão bloqueado ou seta convidativa */}
-              {selected === option.id && (
-                <Link href="/login" className="text-xs bg-white text-indigo-600 px-2 py-1 rounded font-bold hover:scale-105 transition-transform">
-                  Ver Resultado
-                </Link>
-              )}
+                {icon}
+                {unlocked && !completed && <div className="absolute inset-0 rounded-full bg-white/20 animate-pulse"></div>}
             </button>
-          ))}
         </div>
-      </div>
-      
-      {/* Rodapé do Card */}
-      <div className="bg-slate-950 p-3 text-center border-t border-slate-800">
-        <p className="text-xs text-slate-500">
-          Responda para ganhar <span className="text-emerald-400 font-bold">+15 XP</span>
-        </p>
-      </div>
-    </motion.div>
-  )
+    </div>
+  );
 }
 
-// --- PÁGINA PRINCIPAL ---
+export default function Home() {
+  const router = useRouter();
+  
+  // --- ESTADOS GERAIS ---
+  const [user, setUser] = useState<any>(null);
+  const [perfil, setPerfil] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [xpGanhoSessao, setXpGanhoSessao] = useState(0);
 
-export default function LandingPage() {
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 selection:bg-indigo-500/30">
+  // --- NAVEGAÇÃO INTERNA DO JOGO ---
+  const [areas, setAreas] = useState([]);
+  const [sistemas, setSistemas] = useState([]);
+  const [disciplinas, setDisciplinas] = useState([]);
+  const [topicos, setTopicos] = useState([]);
+  const [mapaProgresso, setMapaProgresso] = useState<Record<number, number>>({});
+
+  const [selectedArea, setSelectedArea] = useState<any>(null);
+  const [selectedSystem, setSelectedSystem] = useState<any>(null);
+  const [selectedDisciplina, setSelectedDisciplina] = useState<any>(null);
+  const [selectedTopico, setSelectedTopico] = useState<any>(null);
+
+  // --- QUIZ & SESSÃO ---
+  const [modoQuiz, setModoQuiz] = useState(false);
+  const [filaQuestoes, setFilaQuestoes] = useState<any[]>([]);
+  const [indiceQuestao, setIndiceQuestao] = useState(0);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [sessaoConcluida, setSessaoConcluida] = useState(false);
+  const [scoreSessao, setScoreSessao] = useState(0);
+  const [nivelJogando, setNivelJogando] = useState(0); 
+
+  const questaoAtual = filaQuestoes[indiceQuestao];
+
+  // --- INICIALIZAÇÃO BLINDADA ---
+  useEffect(() => {
+    async function init() {
+      const { data: { session } } = await supabase.auth.getSession();
       
-      {/* NAVBAR */}
-      <nav className="fixed w-full z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg">
-              <Activity className="text-white" size={20} />
-            </div>
-            <span className="text-xl font-bold tracking-tight">MedQuiz</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">
-              Entrar
-            </Link>
-            <Link 
-              href="/login" 
-              className="bg-slate-100 text-slate-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
-            >
-              Começar Agora
-            </Link>
-          </div>
-        </div>
-      </nav>
+      if (session?.user) {
+        setUser(session.user);
+        await Promise.all([
+            atualizarPerfil(session.user.id),
+            carregarProgresso(session.user.id)
+        ]);
+      }
 
-      {/* HERO SECTION */}
-      <section className="relative pt-32 pb-20 lg:pt-48 overflow-hidden">
-        {/* Background Gradients (Ambientação) */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-indigo-600/20 blur-[120px] rounded-full -z-10" />
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/areas`);
+        if (res.ok) setAreas(await res.json());
+      } catch(e) { console.error("API Offline"); }
+      
+      setLoading(false);
+    }
+    init();
+  }, []);
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            
-            {/* LADO ESQUERDO: COPYWRITING */}
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6 }}
-              className="space-y-8"
-            >
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-indigo-400 text-xs font-bold uppercase tracking-wide">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                </span>
-                Nova Era do Ensino Médico
-              </div>
+  async function atualizarPerfil(userId: string) {
+      const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      if (data) setPerfil(data);
+  }
 
-              <h1 className="text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1]">
-                Aflore sua <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">
-                  curiosidade.
-                </span>
-              </h1>
-              
-              <p className="text-lg text-slate-400 max-w-lg leading-relaxed">
-                Menos ansiedade, mais dopamina. Transforme casos clínicos complexos em 
-                jogos rápidos. Junte-se a amigos, suba de nível e domine a medicina 
-                sem perceber que está estudando.
-              </p>
+  async function carregarProgresso(userId: string) {
+      try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso/${userId}`);
+          const data = await res.json();
+          setMapaProgresso(data);
+      } catch (e) { console.error(e); }
+  }
 
-              <div className="flex flex-wrap gap-4">
-                <Link 
-                  href="/login"
-                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-[0_4px_0_rgb(55,48,163)] hover:shadow-[0_2px_0_rgb(55,48,163)] hover:translate-y-[2px]"
-                >
-                  Jogar Agora
-                  <ArrowRight size={20} />
-                </Link>
-                <button className="flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-slate-300 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all">
-                  Ver Demonstração
-                </button>
-              </div>
+  // --- FUNÇÕES DE NAVEGAÇÃO ---
+  async function selArea(item: any) { setSelectedArea(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sistemas/${item.id}`); setSistemas(await res.json()); }
+  async function selSistema(item: any) { setSelectedSystem(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/trilhas/${item.id}`); setDisciplinas(await res.json()); }
+  async function selDisciplina(item: any) { setSelectedDisciplina(item); const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ilhas/${item.id}`); setTopicos(await res.json()); }
+  function selTopico(item: any) { setSelectedTopico(item); }
 
-              <div className="flex items-center gap-4 text-sm text-slate-500 pt-4">
-                <div className="flex -space-x-2">
-                  {[1,2,3,4].map(i => (
-                    <div key={i} className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-950 flex items-center justify-center text-xs">
-                      💊
-                    </div>
-                  ))}
-                </div>
-                <p>Junte-se a <span className="text-white font-bold">2.400+</span> estudantes</p>
-              </div>
-            </motion.div>
+  function resetArea() { setSelectedArea(null); setSelectedSystem(null); setSelectedDisciplina(null); setSelectedTopico(null); }
+  function resetSistema() { setSelectedSystem(null); setSelectedDisciplina(null); setSelectedTopico(null); }
+  function resetDisciplina() { setSelectedDisciplina(null); setSelectedTopico(null); }
+  function resetTopico() { setSelectedTopico(null); }
 
-            {/* LADO DIREITO: DEMO INTERATIVA */}
-            <div className="relative flex justify-center lg:justify-end">
-                {/* Elementos decorativos de fundo */}
-                <div className="absolute top-10 right-10 w-20 h-20 bg-emerald-500/20 blur-2xl rounded-full" />
-                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-500/20 blur-3xl rounded-full" />
-                
-                <DemoQuestionCard />
-            </div>
-          </div>
-        </div>
-      </section>
+  async function sair() { await supabase.auth.signOut(); window.location.reload(); }
 
-      {/* FEATURES SECTION (BENTO GRID) */}
-      <section className="py-24 bg-slate-950 relative">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-16">
-                <h2 className="text-3xl font-bold text-white mb-4">Estude como um profissional</h2>
-                <p className="text-slate-400">Tudo o que você precisa para destruir na prova de residência.</p>
-            </div>
+  // --- LÓGICA DO JOGO ---
+  async function iniciarCheckpoint(index: number, isBoss: boolean) {
+      if (!user) return;
+      setNivelJogando(index);
+      setLoading(true);
+      setSessaoConcluida(false);
+      setScoreSessao(0);
+      setIndiceQuestao(0);
+      setFeedback(null);
+      setXpGanhoSessao(0);
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Feature 1: Gamificação */}
-                <motion.div 
-                    whileHover={{ y: -5 }}
-                    className="md:col-span-2 bg-gradient-to-br from-slate-900 to-slate-900/50 border border-slate-800 p-8 rounded-3xl relative overflow-hidden group"
-                >
-                    <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <Trophy size={120} />
-                    </div>
-                    <div className="bg-indigo-500/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-indigo-400">
-                        <Swords size={24} />
-                    </div>
-                    <h3 className="text-2xl font-bold mb-2">Battle Mode & Ranking</h3>
-                    <p className="text-slate-400 max-w-md">
-                        Compita com seus amigos ou estudantes de todo o país. 
-                        Suba no ranking global e ganhe badges exclusivas.
-                        Prove quem tem o melhor raciocínio clínico.
-                    </p>
-                </motion.div>
+      let diff = "Fácil";
+      let qtd = 5; 
+      if (index >= 2) diff = "Médio";
+      if (isBoss) { diff = "Difícil"; qtd = 10; }
 
-                {/* Feature 2: Streak */}
-                <motion.div 
-                    whileHover={{ y: -5 }}
-                    className="bg-slate-900 border border-slate-800 p-8 rounded-3xl relative overflow-hidden"
-                >
-                     <div className="bg-orange-500/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-orange-400">
-                        <Flame size={24} />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">Mantenha o Foco</h3>
-                    <p className="text-slate-400 text-sm">
-                        Crie o hábito diário de estudos. O sistema de ofensiva (Streak) não te deixa procrastinar.
-                    </p>
-                </motion.div>
+      try {
+          const url = `${process.env.NEXT_PUBLIC_API_URL}/praticar/session/${selectedTopico.id}?user_id=${user.id}&quantidade=${qtd}&dificuldade=${diff}`;
+          const res = await fetch(url);
+          let lista = await res.json();
 
-                {/* Feature 3: IA */}
-                <motion.div 
-                    whileHover={{ y: -5 }}
-                    className="bg-slate-900 border border-slate-800 p-8 rounded-3xl"
-                >
-                    <div className="bg-emerald-500/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-emerald-400">
-                        <Brain size={24} />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">IA Mentor</h3>
-                    <p className="text-slate-400 text-sm">
-                        Não entendeu a resposta? Nossa IA explica o mecanismo fisiopatológico na hora.
-                    </p>
-                </motion.div>
+          if (!lista || lista.length === 0) {
+             const resB = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/praticar/ilha/${selectedTopico.id}`);
+             if(resB.ok) lista = [await resB.json()];
+          }
 
-                {/* Feature 4: Novidades */}
-                <motion.div 
-                    whileHover={{ y: -5 }}
-                    className="md:col-span-2 bg-slate-900 border border-slate-800 p-8 rounded-3xl flex items-center justify-between"
-                >
-                    <div>
-                        <h3 className="text-xl font-bold mb-2">Conteúdo Atualizado Semanalmente</h3>
-                        <p className="text-slate-400 text-sm max-w-sm">
-                            Novos casos clínicos, diretrizes da SBC/AMIB atualizadas e trilhas especiais.
-                        </p>
-                    </div>
-                    <div className="hidden md:block">
-                        <button className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-700 transition">
-                            Ver Roadmap
+          if (lista && lista.length > 0) {
+              setFilaQuestoes(lista);
+              setModoQuiz(true);
+          } else {
+              alert("A IA está gerando questões. Tente em 5 segundos.");
+          }
+      } catch (e) {
+          alert("Erro de conexão com o servidor.");
+      } finally {
+          setLoading(false);
+      }
+  }
+
+  async function verificarResposta(alternativa: string) {
+      const correta = questaoAtual.correta?.trim().toUpperCase();
+      const userResp = alternativa.trim().toUpperCase();
+      const acertou = correta === userResp;
+
+      let xpQuestao = 0;
+      const dif = questaoAtual.dificuldade;
+
+      if (acertou) {
+          if (dif === "Fácil") xpQuestao = 1;
+          else if (dif === "Médio") xpQuestao = 3;
+          else if (dif === "Difícil") xpQuestao = 5;
+          else xpQuestao = 1;
+
+          setFeedback(`✅ Correto! (+${xpQuestao} XP) ` + questaoAtual.explicacao);
+          setScoreSessao(s => s + 1);
+          setXpGanhoSessao(s => s + xpQuestao);
+
+          if (perfil) setPerfil({ ...perfil, xp: perfil.xp + xpQuestao });
+      } else {
+          setFeedback(`❌ Incorreto. Correta: ${questaoAtual.correta}.\n\n${questaoAtual.explicacao}`);
+      }
+
+      if (user) {
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/historico`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user_id: user.id, question_id: questaoAtual.id, is_correct: acertou })
+          });
+          if (acertou && xpQuestao > 0) {
+              await supabase.rpc("increment_xp", { quantidade: xpQuestao });
+          }
+      }
+  }
+
+  async function avancarQuestao() {
+      setFeedback(null);
+      if (indiceQuestao + 1 < filaQuestoes.length) {
+          setIndiceQuestao(i => i + 1);
+      } else {
+          await finalizarSessao();
+      }
+  }
+
+  async function finalizarSessao() {
+      setSessaoConcluida(true);
+      const isBoss = nivelJogando === 4;
+      const meta = isBoss ? 7 : 4;
+      const aprovado = scoreSessao >= meta;
+
+      if (aprovado && user && selectedTopico) {
+          const novoNivel = nivelJogando + 1;
+          if (isBoss) {
+              try {
+                  await supabase.rpc("increment_xp", { quantidade: 15 });
+                  setXpGanhoSessao(prev => prev + 15);
+                  if (perfil) setPerfil((p: any) => ({ ...p, xp: p.xp + 15 }));
+              } catch (e) { console.error("Erro ao dar bônus:", e); }
+          }
+          try {
+              const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/progresso`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                      user_id: user.id,
+                      lesson_id: selectedTopico.id,
+                      nivel_novo: novoNivel
+                  })
+              });
+              if (res.ok) {
+                  setMapaProgresso((prev) => {
+                      const antigo = prev[selectedTopico.id] || 0;
+                      return { ...prev, [selectedTopico.id]: Math.max(antigo, novoNivel) };
+                  });
+              }
+              await atualizarPerfil(user.id);
+          } catch (e) { console.error("Erro de rede:", e); }
+      }
+  }
+
+  function fecharQuiz() {
+      setModoQuiz(false);
+      setFilaQuestoes([]);
+  }
+
+  // --- RENDER DO QUIZ (MODAL) ---
+  if (modoQuiz && questaoAtual) {
+     return (
+        // Mantive o Modal igual, pois ele sobrepõe tudo e não conflita com layout
+        <div className="fixed inset-0 z-[100] bg-slate-100/90 backdrop-blur-sm overflow-y-auto">
+            <div className="min-h-screen flex items-center justify-center p-4">
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+                    <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                        <button onClick={fecharQuiz} className="flex items-center gap-2 text-slate-400 hover:text-red-500 font-bold text-xs uppercase tracking-wider transition-colors">
+                            <ArrowLeft size={16}/> Sair
                         </button>
+                        <div className="flex gap-1">
+                            {filaQuestoes.map((_, i) => (
+                                <div key={i} className={`h-1.5 w-6 rounded-full transition-all ${i < indiceQuestao ? "bg-emerald-400" : i === indiceQuestao ? "bg-[#0cb7f2]" : "bg-slate-200"}`}></div>
+                            ))}
+                        </div>
                     </div>
+
+                    {sessaoConcluida ? (
+                        <div className="p-12 text-center">
+                             <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center mb-6 ${scoreSessao >= 3 ? "bg-emerald-100 text-emerald-500" : "bg-red-100 text-red-500"}`}>
+                                 {scoreSessao >= 3 ? <Award size={48}/> : <AlertTriangle size={48}/>}
+                             </div>
+                             <h2 className="text-3xl font-black text-slate-800 mb-2">{scoreSessao >= 3 ? "Vitória!" : "Não foi dessa vez"}</h2>
+                             <p className="text-slate-500 mb-8">Você acertou {scoreSessao} de {filaQuestoes.length}.</p>
+                             <button onClick={fecharQuiz} className="bg-[#0cb7f2] hover:brightness-110 text-white font-bold py-4 px-10 rounded-2xl shadow-lg shadow-blue-200 transition-all">Continuar</button>
+                        </div>
+                    ) : (
+                        <div className="p-6 md:p-10">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase text-white mb-6 inline-block ${questaoAtual.dificuldade === "Fácil" ? "bg-blue-400" : questaoAtual.dificuldade === "Médio" ? "bg-amber-400" : "bg-rose-500"}`}>
+                                {questaoAtual.dificuldade || "Geral"}
+                            </span>
+                            <h2 className="text-xl md:text-2xl font-bold text-slate-800 mb-8 leading-relaxed">{questaoAtual.enunciado}</h2>
+                            <div className="space-y-3">
+                                {['A','B','C','D'].map((op) => (
+                                    <button key={op} onClick={() => verificarResposta(op)} disabled={!!feedback} className={`w-full p-5 rounded-2xl text-left transition-all bg-white border-2 border-slate-100 hover:border-[#0cb7f2] text-slate-600 flex gap-4 ${feedback && op === questaoAtual.correta ? "!bg-emerald-50 !border-emerald-500 !text-emerald-700" : feedback ? "opacity-40" : ""}`}>
+                                        <span className="font-bold">{op})</span>
+                                        <span>{questaoAtual[`alternativa_${op.toLowerCase()}`]}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <AnimatePresence>
+                                {feedback && (
+                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="overflow-hidden mt-6">
+                                        <div className={`p-6 rounded-2xl ${feedback.includes("✅") ? "bg-emerald-50 border border-emerald-100 text-emerald-800" : "bg-rose-50 border border-rose-100 text-rose-800"}`}>
+                                            <div className="font-bold text-lg mb-2">{feedback.includes("✅") ? "Resposta Correta!" : "Explicação:"}</div>
+                                            <p className="text-sm opacity-90 leading-relaxed">{feedback.replace("✅ Correto! ", "").replace(/❌ Incorreto.*?\n\n/, "")}</p>
+                                            <button onClick={avancarQuestao} className={`mt-4 w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all ${feedback.includes("✅") ? "bg-emerald-500 hover:bg-emerald-600" : "bg-rose-500 hover:bg-rose-600"}`}>
+                                                {indiceQuestao + 1 < filaQuestoes.length ? "Próxima Questão" : "Ver Resultados"}
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    )}
                 </motion.div>
             </div>
         </div>
-      </section>
+     );
+  }
 
-      {/* FOOTER SIMPLES */}
-      <footer className="bg-slate-950 border-t border-slate-900 py-12 text-center text-slate-600 text-sm">
-        <p>&copy; 2024 MedQuiz. Feito por estudantes, para estudantes.</p>
-      </footer>
+  // --- UI PRINCIPAL (REFATORADA) ---
+  return (
+    // Removemos o 'min-h-screen' pois o layout já cuida disso, mas mantemos o padding inferior
+    <div className="w-full pb-32">
+      
+      {/* HEADER SIMPLIFICADO: Apenas Status do Usuário */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 shadow-sm mb-6">
+         <div className="max-w-6xl mx-auto px-6 h-full flex justify-between items-center">
+            {/* Esquerda: Saudação ou Título da Página Atual */}
+            <div className="flex items-center gap-2">
+               {/* Removi o logo repetido. Coloquei um indicador visual simples */}
+               <div className="bg-blue-50 p-2 rounded-lg"><Brain size={18} className="text-[#0cb7f2]"/></div>
+               <span className="font-bold text-slate-700">Painel de Estudo</span>
+            </div>
+
+            {/* Direita: Status (XP, Gems, Logout) */}
+            {user ? (
+               <div className="flex gap-4 items-center">
+                   <div className="flex items-center gap-2 text-amber-500 font-extrabold bg-amber-50 px-3 py-1 rounded-full border border-amber-100 text-xs sm:text-sm">
+                       <Zap size={16} fill="currentColor"/> {perfil?.xp || 0} XP
+                   </div>
+                   <div className="hidden sm:flex items-center gap-2 text-rose-500 font-extrabold bg-rose-50 px-3 py-1 rounded-full border border-rose-100 text-xs sm:text-sm">
+                       <Flame size={16} fill="currentColor"/> 3
+                   </div>
+                   <button onClick={sair} className="text-slate-300 hover:text-rose-500 ml-2 transition-colors" title="Sair"><LogOut size={20}/></button>
+               </div>
+            ) : <button onClick={() => router.push("/login")} className="text-[#0cb7f2] font-bold text-sm">ENTRAR</button>}
+         </div>
+      </header>
+
+      {/* CONTEÚDO PRINCIPAL (Jogabilidade) */}
+      <main className="max-w-4xl mx-auto w-full px-6">
+        
+        {loading && (
+            <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+                <div className="w-12 h-12 border-4 border-slate-200 border-t-[#0cb7f2] rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-400 font-bold text-sm">SINCRONIZANDO...</p>
+            </div>
+        )}
+
+        <AnimatePresence mode="wait">
+          
+          {/* NÍVEL 1: ÁREAS */}
+          {!selectedArea && !loading && (
+             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+               <div className="flex items-end justify-between">
+                   <h2 className="text-2xl font-black text-slate-800">Ciclo Básico</h2>
+                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Selecione uma área</span>
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                   {areas.map((area: any) => (
+                     <button key={area.id} onClick={() => selArea(area)} className="group bg-white p-6 rounded-3xl border border-slate-200 hover:border-[#0cb7f2] hover:shadow-xl hover:-translate-y-1 transition-all text-left flex gap-5 items-center">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center group-hover:bg-[#0cb7f2] transition-colors duration-300 shadow-inner">
+                            <Microscope className="text-slate-400 group-hover:text-white w-8 h-8 transition-colors"/>
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-lg text-slate-700 group-hover:text-[#0cb7f2]">{area.nome}</h3>
+                            <p className="text-xs text-slate-400 font-medium mt-1">Clique para explorar</p>
+                        </div>
+                     </button>
+                   ))}
+               </div>
+             </motion.div>
+          )}
+
+          {/* ... MANTIVE OS OUTROS NÍVEIS (Sistemas, Disciplinas, Tópicos) IGUAIS ... 
+              Apenas removi o comentário para encurtar, mas o código original dos 
+              blocos selectedArea, selectedSystem e selectedDisciplina deve ser mantido aqui.
+          */}
+          
+          {selectedArea && !selectedSystem && (
+             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+               <button onClick={resetArea} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA ÁREAS</button>
+               <h2 className="text-3xl font-black text-[#0cb7f2] mb-8">{selectedArea.nome}</h2>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {sistemas.map((sis:any) => (
+                      <button key={sis.id} onClick={() => selSistema(sis)} className="bg-white p-6 rounded-3xl border-2 border-slate-100 hover:border-[#0cb7f2] text-left group transition-all shadow-sm hover:shadow-md">
+                          <Dna className="text-slate-300 w-8 h-8 mb-4 group-hover:text-[#0cb7f2] transition-colors"/>
+                          <h3 className="font-bold text-slate-700 text-lg group-hover:text-slate-900">{sis.nome}</h3>
+                      </button>
+                  ))}
+               </div>
+             </motion.div>
+          )}
+
+          {selectedSystem && !selectedDisciplina && (
+             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <button onClick={resetSistema} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA SISTEMAS</button>
+                <h2 className="text-3xl font-black text-slate-800 mb-2">{selectedSystem.nome}</h2>
+                <div className="space-y-4 mt-8">
+                   {disciplinas.map((disc:any) => (
+                       <button key={disc.id} onClick={() => selDisciplina(disc)} className="w-full bg-white p-6 rounded-2xl border border-slate-200 hover:border-[#0cb7f2] hover:shadow-lg transition-all flex justify-between items-center group">
+                           <div className="flex items-center gap-6">
+                               <div className="p-3 bg-slate-50 rounded-xl group-hover:bg-blue-50 transition-colors"><Stethoscope className="text-slate-400 group-hover:text-[#0cb7f2] w-6 h-6"/></div>
+                               <span className="font-bold text-xl text-slate-700 group-hover:text-[#0cb7f2]">{disc.nome}</span>
+                           </div>
+                           <ChevronRight className="text-slate-300 group-hover:text-[#0cb7f2]"/>
+                       </button>
+                   ))}
+                </div>
+             </motion.div>
+          )}
+
+          {selectedDisciplina && !selectedTopico && (
+             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <button onClick={resetDisciplina} className="text-slate-400 font-bold text-xs mb-6 flex items-center gap-1 hover:text-[#0cb7f2] transition-colors"><ArrowLeft size={14}/> VOLTAR PARA DISCIPLINAS</button>
+                <h2 className="text-2xl font-black text-[#0cb7f2] mb-8">{selectedDisciplina.nome}</h2>
+                <div className="space-y-4">
+                    {topicos.map((topico: any) => {
+                        const nivel = mapaProgresso[topico.id] || 0;
+                        const pct = (nivel / 5) * 100;
+                        return (
+                            <button key={topico.id} onClick={() => selTopico(topico)} className="w-full bg-white p-5 rounded-2xl border border-slate-200 hover:border-[#0cb7f2] hover:shadow-md transition-all text-left group relative overflow-hidden">
+                                <div className="flex justify-between items-center mb-3 relative z-10">
+                                    <span className="font-bold text-slate-700 text-lg group-hover:text-[#0cb7f2]">{topico.titulo}</span>
+                                    <PlayCircle className="text-slate-300 group-hover:text-[#0cb7f2] transition-colors"/>
+                                </div>
+                                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden relative z-10">
+                                    <div className="bg-[#0cb7f2] h-full transition-all duration-1000 ease-out" style={{ width: `${pct}%` }}></div>
+                                </div>
+                                <div className="flex justify-between mt-2 relative z-10">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{pct}% CONCLUÍDO</span>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+             </motion.div>
+          )}
+
+          {/* NÍVEL 5: MAPA (CHECKPOINTS) */}
+          {selectedTopico && (
+             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative flex flex-col items-center">
+                <div className="fixed top-20 md:top-24 z-30 bg-white/90 backdrop-blur-xl px-6 py-3 rounded-full border border-slate-200 shadow-xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+                    <button onClick={resetTopico} className="text-slate-400 hover:text-slate-800 transition-colors"><ArrowLeft/></button>
+                    <span className="w-px h-4 bg-slate-300"></span>
+                    <h2 className="font-black text-slate-800 text-sm max-w-[200px] truncate">{selectedTopico.titulo}</h2>
+                </div>
+
+                <div className="flex flex-col items-center w-full max-w-md gap-4 pb-32 pt-32 relative">
+                    <div className="absolute top-32 bottom-20 w-3 bg-slate-100 rounded-full -z-20"></div>
+                    
+                    {[0,1,2,3,4].map((idx) => {
+                        const progressoAtual = mapaProgresso[selectedTopico.id] || 0;
+                        return (
+                            <CheckpointNode 
+                                key={idx} 
+                                index={idx} 
+                                total={5} 
+                                onClick={iniciarCheckpoint}
+                                unlocked={progressoAtual >= idx}
+                                completed={progressoAtual > idx}
+                            />
+                        );
+                    })}
+                    <div className="mt-8 text-4xl opacity-50 grayscale">🏁</div>
+                </div>
+             </motion.div>
+          )}
+
+        </AnimatePresence>
+      </main>
+
+      {/* REMOVI O NAV INFERIOR AQUI - O Layout.tsx já cuida disso! */}
     </div>
-  )
+  );
 }
