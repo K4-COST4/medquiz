@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, Suspense } from "react" // <--- Adicionei Suspense aqui
 import { useSearchParams, useRouter } from "next/navigation"
 import { 
   Clock, ChevronRight, ChevronLeft, AlertCircle, Bot, CheckCircle2, XCircle, 
@@ -19,7 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar" // Certifique-se de ter instalado ou use divs simples
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 import { fetchExamQuestions } from "./actions"
 import { chatWithMedAI, getRemainingDailyUses } from "./ai-action"
@@ -43,7 +43,6 @@ interface ChatMessage {
   content: string
 }
 
-// Interface para futuros usuários multiplayer
 interface Participant {
   id: string
   name: string
@@ -51,7 +50,8 @@ interface Participant {
   isOnline: boolean
 }
 
-export default function ExamEnginePage() {
+// --- COMPONENTE INTERNO COM A LÓGICA (ANTIGO ExamEnginePage) ---
+function ExamContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { toast } = useToast()
@@ -88,7 +88,6 @@ export default function ExamEnginePage() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // -- MULTIPLAYER (PREPARAÇÃO) --
-  // Futuramente isso virá do Supabase Realtime
   const [participants, setParticipants] = useState<Participant[]>([
     { id: 'me', name: 'Você', initials: 'EU', isOnline: true }
   ])
@@ -195,20 +194,18 @@ export default function ExamEnginePage() {
     setIsFinished(true)
     
     // 1. Calcula o tempo gasto
-    // O timeLimitSeconds é o total (ex: 3600), o timeLeft é o que sobrou (ex: 3000)
-    // Tempo gasto = Total - Sobra
-    const usedTime = (parseInt(searchParams.get('time_limit') || '3600')) - timeLeft
+    const usedTime = timeLimitSeconds - timeLeft
 
-    // 2. Monta o payload de resultado
+    // 2. Monta o payload
     const resultPayload = {
-        questions: questions,       // Todas as perguntas com seus textos/alternativas
-        answers: answers,           // O objeto com as respostas do usuário { 'q1': 'A', 'q2': 'C' }
-        timeSpent: usedTime,        // Tempo em segundos
+        questions: questions,
+        answers: answers,
+        timeSpent: usedTime,
         examTitle: examTitle || subject,
         date: new Date().toISOString()
     }
 
-    // 3. Salva no LocalStorage (Funciona como um banco temporário entre telas)
+    // 3. Salva
     localStorage.setItem('last_exam_result', JSON.stringify(resultPayload))
 
     toast({ title: "Prova Finalizada!", description: "Gerando seu relatório..." })
@@ -286,7 +283,6 @@ export default function ExamEnginePage() {
                </Button>
                
                {/* ÁREA MULTIPLAYER (PREPARADA) */}
-               {/* Mostra avatares dos usuários na sessão */}
                <div className="hidden sm:flex items-center -space-x-2 border-l pl-4 ml-2 border-slate-200 dark:border-slate-700 h-8">
                   {participants.map((p) => (
                       <div key={p.id} className="relative group cursor-help" title={`${p.name} (Online)`}>
@@ -298,7 +294,6 @@ export default function ExamEnginePage() {
                           )}
                       </div>
                   ))}
-                  {/* Botão de Convidar (Futuro) */}
                   <button className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 border-2 border-white dark:border-slate-900 flex items-center justify-center text-slate-500 transition-colors" title="Convidar amigo (Em breve)">
                       <Users size={14} />
                   </button>
@@ -351,7 +346,6 @@ export default function ExamEnginePage() {
 
         <Card className="border-none shadow-lg overflow-hidden">
           <CardContent className="p-6 md:p-10 space-y-8">
-            {/* Texto */}
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2 mb-2">
                  <Badge variant="outline" className="uppercase">{currentQuestion.type === 'MULTIPLE_CHOICE' ? 'Objetiva' : 'Discursiva'}</Badge>
@@ -363,7 +357,6 @@ export default function ExamEnginePage() {
               </p>
             </div>
 
-            {/* Alternativas */}
             {currentQuestion.type === 'MULTIPLE_CHOICE' && (
               <RadioGroup value={answers[currentQuestion.id] || ""} onValueChange={handleAnswerSelect} className="space-y-3">
                 {currentQuestion.alternatives?.map((alt) => {
@@ -401,7 +394,6 @@ export default function ExamEnginePage() {
               </RadioGroup>
             )}
 
-            {/* Discursiva */}
             {currentQuestion.type === 'DISCURSIVE' && (
               <div className="space-y-4">
                 <Textarea 
@@ -492,5 +484,14 @@ export default function ExamEnginePage() {
       </Sheet>
 
     </div>
+  )
+}
+
+// --- WRAPPER DO SUSPENSE (CORREÇÃO DO ERRO) ---
+export default function ExamEnginePage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950"><Loader2 className="h-10 w-10 animate-spin text-indigo-600" /></div>}>
+      <ExamContent />
+    </Suspense>
   )
 }
