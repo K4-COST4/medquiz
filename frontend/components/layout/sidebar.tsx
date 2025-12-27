@@ -9,6 +9,7 @@ import {
   BarChart2, 
   User, 
   Sparkles,
+  UploadCloud 
 } from "lucide-react"
 
 import {
@@ -28,8 +29,9 @@ export function Sidebar() {
     { label: "Início", href: "/dashboard", icon: Home },
     { label: "Praticar", href: "/praticar", icon: Swords },
     { label: "Trilhas", href: "/trilhas", icon: Map },
-    { label: "MedAI", href: "/med-ai", icon: Sparkles, color: "text-violet-500" },
+    { label: "MedAI", href: "/medai", icon: Sparkles, color: "text-violet-500" },
     { label: "Estatísticas", href: "/stats", icon: BarChart2 },
+    { label: "Contribuir", href: "/contribuir", icon: UploadCloud, color: "text-emerald-500" }, // <--- ADICIONADO
   ]
 
   return (

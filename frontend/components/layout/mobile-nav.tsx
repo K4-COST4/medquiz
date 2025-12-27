@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Swords, Map, Sparkles, User } from "lucide-react"
+import { Home, Swords, Map, Sparkles, User, UploadCloud } from "lucide-react"
 
 export function MobileNav() {
   const pathname = usePathname()
@@ -10,8 +10,9 @@ export function MobileNav() {
   const navItems = [
     { label: "Home", href: "/dashboard", icon: Home },
     { label: "Jogar", href: "/praticar", icon: Swords },
-    { label: "MedAI", href: "/med-ai", icon: Sparkles },
+    { label: "MedAI", href: "/medai", icon: Sparkles },
     { label: "Trilhas", href: "/trilhas", icon: Map },
+    { label: "Contribuir", href: "/contribuir", icon: UploadCloud }, // <--- ADICIONADO
     { label: "Perfil", href: "/perfil", icon: User },
   ]
 

@@ -75,7 +75,11 @@ const config = {
     },
   },
   // AQUI ESTÁ O SEGREDO: O plugin precisa estar listado assim
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography"),
+  ],
+  
 } satisfies Config
 
 export default config
