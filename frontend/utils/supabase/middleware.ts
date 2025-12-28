@@ -2,6 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
+  // 0. REGRA DE OURO: Ignora rotas de Auth para evitar loops
+  // Isso impede que o middleware intercepte o callback de login do Google
+  if (request.nextUrl.pathname.startsWith('/auth')) {
+    return NextResponse.next()
+  }
+
   // 1. Prepara a resposta inicial
   let supabaseResponse = NextResponse.next({
     request,
@@ -28,6 +34,7 @@ export async function updateSession(request: NextRequest) {
   )
 
   // --- ÁREA DE DIAGNÓSTICO (LOGS) ---
+  // Remova estes logs em produção para limpar o terminal
   console.log("------------------------------------------------")
   console.log(">>> MIDDLEWARE INICIADO")
   console.log(">>> Rota tentada:", request.nextUrl.pathname)
@@ -39,20 +46,21 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   if (error) {
-    console.log(">>> Erro ao buscar usuário:", error.message)
+    // É normal dar erro se não tiver token (usuário deslogado)
+    // console.log(">>> Nota: Nenhum usuário ativo no momento.") 
   }
   
-  console.log(">>> Usuário está logado?", user ? "SIM (Email: " + user.email + ")" : "NÃO")
+  console.log(">>> Usuário está logado?", user ? "SIM" : "NÃO")
   // ----------------------------------
 
-  // Função auxiliar para redirecionar levando os cookies junto (Tratamento)
+  // Função auxiliar para redirecionar mantendo os cookies da sessão
   const redirectWithCookies = (path: string) => {
-    console.log(`>>> REDIRECIONANDO para: ${path}`) // Log extra aqui
+    console.log(`>>> REDIRECIONANDO para: ${path}`)
     const url = request.nextUrl.clone()
     url.pathname = path
     const newResponse = NextResponse.redirect(url)
     
-    // Transplante de cookies
+    // Transplante de cookies (Crucial para o login persistir)
     const cookiesToSet = supabaseResponse.cookies.getAll()
     cookiesToSet.forEach(cookie => {
       newResponse.cookies.set(cookie)
@@ -61,28 +69,29 @@ export async function updateSession(request: NextRequest) {
     return newResponse
   }
 
-  // REGRAS DE PROTEÇÃO
+  // --- REGRAS DE PROTEÇÃO ---
 
-  // A. Se estiver logado e tentar ir pro Login -> Dashboard
+  // A. Usuário LOGADO tentando acessar Login -> Manda para Dashboard
   if (user && request.nextUrl.pathname.startsWith('/login')) {
     return redirectWithCookies('/dashboard')
   }
 
-  // B. Se NÃO estiver logado e tentar acessar rotas protegidas
+  // B. Usuário DESLOGADO tentando acessar rotas protegidas -> Manda para Login
   if (!user && (
       request.nextUrl.pathname.startsWith('/dashboard') || 
       request.nextUrl.pathname.startsWith('/perfil') || 
       request.nextUrl.pathname.startsWith('/erros') ||
-      request.nextUrl.pathname.startsWith('/praticar')
+      request.nextUrl.pathname.startsWith('/praticar')||
+      request.nextUrl.pathname.startsWith('/contribuir')||
+      request.nextUrl.pathname.startsWith('/estatisticas')||
+      request.nextUrl.pathname.startsWith('/medai')
   )) {
-    console.log(">>> BLOQUEIO: Tentativa de acesso sem login. Redirecionando.")
-// Adiciona o parâmetro 'next' com a rota que ele tentou acessar
+    console.log(">>> BLOQUEIO: Acesso restrito. Redirecionando para login.")
+    // Adiciona 'next' na URL para o usuário voltar para onde queria depois de logar
     const loginUrl = `/login?next=${request.nextUrl.pathname}`
-  return redirectWithCookies(loginUrl)
+    return redirectWithCookies(loginUrl)
   }
 
-  console.log(">>> ACESSO PERMITIDO. Passando para a página.")
-  console.log("------------------------------------------------")
-  
+  // Se passou por tudo, libera o acesso
   return supabaseResponse
 }

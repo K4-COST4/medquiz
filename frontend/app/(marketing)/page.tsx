@@ -119,7 +119,7 @@ export default function LandingPage() {
               Entrar
             </Link>
             <Link 
-              href="/login" 
+              href="/cadastro" 
               className="bg-slate-100 text-slate-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
             >
               Começar Agora
