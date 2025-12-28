@@ -1,8 +1,10 @@
 import { type NextRequest } from 'next/server'
 import { updateSession } from '@/utils/supabase/middleware'
 
-export async function middleware(request: NextRequest) {
+// A função agora deve se chamar 'proxy' ou ser o export default
+export async function proxy(request: NextRequest) {
   // Essa função auxiliar gerencia a renovação do token
+  // Mantemos a lógica do Supabase, que deve funcionar normalmente
   return await updateSession(request)
 }
 

@@ -20,24 +20,24 @@ import {
 } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { StreakCounter } from "@/components/streak-counter" // <--- Importado
 
 export function Sidebar() {
   const pathname = usePathname()
 
-  // Mapeamento dos itens do menu
   const navItems = [
     { label: "Início", href: "/dashboard", icon: Home },
     { label: "Praticar", href: "/praticar", icon: Swords },
     { label: "Trilhas", href: "/trilhas", icon: Map },
     { label: "MedAI", href: "/medai", icon: Sparkles, color: "text-violet-500" },
     { label: "Estatísticas", href: "/stats", icon: BarChart2 },
-    { label: "Contribuir", href: "/contribuir", icon: UploadCloud, color: "text-emerald-500" }, // <--- ADICIONADO
+    { label: "Contribuir", href: "/contribuir", icon: UploadCloud, color: "text-emerald-500" },
   ]
 
   return (
     <aside className="hidden md:flex flex-col items-center w-[72px] h-screen py-4 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50">
       
-      {/* LOGO (M de MedQuiz) */}
+      {/* LOGO */}
       <div className="mb-6">
         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/30 text-xl">
           M
@@ -51,7 +51,6 @@ export function Sidebar() {
         <nav className="flex flex-col gap-4 items-center">
           <TooltipProvider delayDuration={0}>
             {navItems.map((item) => {
-              // Verifica se estamos na página exata ou numa sub-página
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
               
               return (
@@ -70,7 +69,6 @@ export function Sidebar() {
                         ${!isActive && item.color ? item.color : ""}
                       `}
                     >
-                      {/* O "Pill" lateral (Indicador de ativo) */}
                       <div className={`
                         absolute left-0 w-[4px] bg-indigo-600 rounded-r-full transition-all duration-300
                         ${isActive ? "h-8 -ml-3" : "h-2 -ml-4 opacity-0 group-hover:opacity-100 group-hover:h-4 group-hover:-ml-3"}
@@ -91,8 +89,14 @@ export function Sidebar() {
 
       <Separator className="w-10 my-4 bg-slate-200 dark:bg-slate-700" />
 
-      {/* RODAPÉ (PERFIL) */}
+      {/* RODAPÉ (STREAK + PERFIL) */}
       <div className="flex flex-col gap-4 items-center pb-4">
+        
+        {/* FOGUINHO AQUI */}
+        <div className="scale-90">
+            <StreakCounter />
+        </div>
+
         <TooltipProvider>
            <Tooltip>
             <TooltipTrigger asChild>

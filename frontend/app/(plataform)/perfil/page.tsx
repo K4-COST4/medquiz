@@ -1,75 +1,125 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { 
   ArrowLeft, LogOut, Zap, User, 
-  Brain, Shield, Award, Flame, Target, Settings, Crown
+  Brain, Shield, Award, Flame, Target, Settings, Crown,
+  Activity, Stethoscope, Edit2, Check, X, Copy, Hash
 } from "lucide-react";
 
-// --- CONFIGURAÇÃO SUPABASE ---
-const supabase = createClient(
+// --- CONFIGURAÇÃO ---
+const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const COR_PRINCIPAL = "#0cb7f2"; 
+// Nova Cor Primária (Roxo MedQuiz)
+const COR_PRIMARIA = "#8b5cf6"; // Violet-500
 
-// --- COMPONENTE DE ESTATÍSTICA ---
+// --- COMPONENTE: CARD DE ESTATÍSTICA ---
 function StatCard({ icon: Icon, label, value, color, delay }: any) {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow"
+      className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all hover:-translate-y-1 group"
     >
-      <div className={`p-4 rounded-2xl ${color.bg} ${color.text}`}>
-        <Icon size={24} />
+      <div className={`p-3 rounded-2xl ${color.bg} ${color.text} group-hover:scale-110 transition-transform`}>
+        <Icon size={22} strokeWidth={2.5} />
       </div>
       <div>
-        <div className="text-2xl font-black text-slate-800">{value}</div>
-        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">{label}</div>
+        <div className="text-2xl font-black text-slate-800 tracking-tight">{value}</div>
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</div>
       </div>
     </motion.div>
   )
 }
 
-// --- FUNÇÃO PARA CALCULAR TÍTULO MÉDICO ---
+// --- LÓGICA DE TÍTULOS (Hierarquia Médica) ---
 function getTitulo(xp: number) {
-  if (xp < 500) return { titulo: "Estudante de Medicina", cor: "text-slate-500", icon: Brain };
-  if (xp < 1500) return { titulo: "Interno", cor: "text-blue-500", icon: Activity };
-  if (xp < 3000) return { titulo: "Residente R1", cor: "text-emerald-500", icon: Stethoscope };
-  if (xp < 5000) return { titulo: "Residente R3", cor: "text-purple-500", icon: Shield };
-  return { titulo: "Chefe de Plantão", cor: "text-amber-500", icon: Crown };
+  // Mantive cores distintas para os cargos para dar senso de progressão, 
+  // mas o tema geral do site agora é roxo.
+  if (xp < 500) return { titulo: "Estudante", cor: "text-slate-500", bg: "bg-slate-100", icon: Brain };
+  if (xp < 1500) return { titulo: "Interno", cor: "text-blue-500", bg: "bg-blue-100", icon: Activity };
+  if (xp < 3000) return { titulo: "Residente R1", cor: "text-emerald-500", bg: "bg-emerald-100", icon: Stethoscope };
+  if (xp < 5000) return { titulo: "Especialista", cor: "text-violet-500", bg: "bg-violet-100", icon: Shield };
+  return { titulo: "Staff", cor: "text-amber-500", bg: "bg-amber-100", icon: Crown };
 }
-
-// Importando ícones extras para usar na função acima se necessário, 
-// mas como Stethoscope/Activity não estão importados no topo, vou usar genéricos.
-// Ajuste rápido:
-import { Activity, Stethoscope } from "lucide-react"; 
 
 export default function PerfilPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Estados de Edição
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempName, setTempName] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   useEffect(() => {
     async function getData() {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { router.push("/login"); return; }
+      
+      if (!session) { 
+        router.push("/login"); 
+        return; 
+      }
       
       setUser(session.user);
       
-      const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-      setPerfil(data || { xp: 0, nome: session.user.email?.split('@')[0] });
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+
+      // Fallback robusto
+      const perfilData = data || { 
+        xp: 0, 
+        nome: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+        streak: 0,
+        precisao: 0
+      };
+
+      setPerfil(perfilData);
+      setTempName(perfilData.nome); 
       setLoading(false);
     }
     getData();
-  }, []);
+  }, [router]);
+
+  // Função para salvar o novo nome NO SUPABASE
+  async function salvarNome() {
+    if (!tempName.trim()) return;
+    setIsSaving(true);
+
+    // Atualiza no Banco de Dados
+    const { error } = await supabase
+      .from('profiles')
+      .update({ nome: tempName })
+      .eq('id', user.id);
+
+    if (!error) {
+      // Atualiza na tela (Optimistic UI)
+      setPerfil({ ...perfil, nome: tempName });
+      setIsEditing(false);
+    } else {
+      alert("Erro ao salvar nome. Tente novamente.");
+    }
+    setIsSaving(false);
+  }
+
+  const copiarID = () => {
+    navigator.clipboard.writeText(user?.id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
 
   async function sair() {
     await supabase.auth.signOut();
@@ -79,12 +129,11 @@ export default function PerfilPage() {
   if (loading) {
     return (
        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-[#0cb7f2] rounded-full animate-spin"></div>
+          <div className="w-10 h-10 border-4 border-slate-200 border-t-violet-500 rounded-full animate-spin"></div>
        </div>
     );
   }
 
-  // Cálculos de Nível
   const xpAtual = perfil?.xp || 0;
   const nivel = Math.floor(xpAtual / 1000) + 1;
   const xpProximoNivel = nivel * 1000;
@@ -92,131 +141,172 @@ export default function PerfilPage() {
   
   const tituloInfo = getTitulo(xpAtual);
   const TituloIcon = tituloInfo.icon;
+  const streakAtual = perfil?.streak || 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
+    <div className="min-h-screen bg-slate-50 font-sans pb-20 selection:bg-violet-100 selection:text-violet-900">
       
-      {/* HEADER FIXO */}
+      {/* HEADER ROXO/MEDQUIZ */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 shadow-sm">
          <div className="max-w-4xl mx-auto px-6 h-full flex justify-between items-center">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/")}>
-               <div className="bg-[#0cb7f2] p-2 rounded-xl shadow-lg shadow-blue-200"><Brain className="text-white w-5 h-5"/></div>
-               <span className="text-xl font-extrabold text-slate-700 tracking-tight">Medi<span style={{color: COR_PRINCIPAL}}>Lingo</span></span>
+            <div className="flex items-center gap-2 cursor-pointer group" onClick={() => router.push("/")}>
+               <div className="bg-violet-600 p-1.5 rounded-lg shadow-lg shadow-violet-200 group-hover:scale-105 transition-transform">
+                 <Brain className="text-white w-4 h-4"/>
+               </div>
+               <span className="text-lg font-extrabold text-slate-700 tracking-tight">Med<span className="text-violet-600">Quiz</span></span>
             </div>
-            <button onClick={() => router.push("/")} className="text-slate-400 font-bold text-sm hover:text-[#0cb7f2] flex items-center gap-1 transition-colors">
-                <ArrowLeft size={16}/> VOLTAR
+            <button onClick={() => router.push("/")} className="text-slate-400 font-bold text-xs hover:text-violet-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-full hover:bg-violet-50">
+                <ArrowLeft size={14} strokeWidth={3}/> VOLTAR
             </button>
          </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-3xl mx-auto px-6 py-8">
         
-        {/* CARTÃO DE PERFIL PRINCIPAL */}
+        {/* CARTÃO DE PERFIL */}
         <motion.div 
-          initial={{opacity: 0, y: 20}} animate={{opacity: 1, y: 0}}
-          className="bg-white rounded-[2.5rem] p-8 md:p-12 border border-slate-200 shadow-xl shadow-slate-200/50 mb-8 relative overflow-hidden"
+          initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}}
+          className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-xl shadow-slate-200/60 mb-6 relative overflow-hidden"
         >
-            {/* Background Decorativo */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-bl-full -mr-10 -mt-10 z-0"></div>
+            {/* Background Decorativo Roxo */}
+            <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-violet-100 to-fuchsia-50 rounded-full blur-3xl opacity-60"></div>
 
-            <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
-                {/* Avatar */}
-                <div className="w-32 h-32 md:w-40 md:h-40 bg-gradient-to-br from-[#0cb7f2] to-blue-600 rounded-full flex items-center justify-center shadow-2xl shadow-blue-300 ring-8 ring-blue-50">
-                    <span className="text-5xl font-black text-white uppercase">
-                        {perfil?.nome?.[0] || "U"}
-                    </span>
+            <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-6">
+                
+                {/* Avatar com Gradiente Roxo */}
+                <div className="relative group">
+                    <div className="w-28 h-28 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-violet-200 rotate-3 group-hover:rotate-0 transition-all duration-300">
+                        <span className="text-4xl font-black text-white uppercase select-none">
+                            {perfil?.nome?.[0] || user?.email?.[0]}
+                        </span>
+                    </div>
+                    <div className="absolute -bottom-2 -right-2 bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded-lg border-2 border-white shadow-sm">
+                        Lvl.{nivel}
+                    </div>
                 </div>
 
-                {/* Info */}
-                <div className="flex-1 text-center md:text-left">
-                    <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 ${tituloInfo.cor} flex items-center gap-1`}>
+                <div className="flex-1 w-full text-center md:text-left">
+                    
+                    {/* Tags */}
+                    <div className="flex items-center justify-center md:justify-start gap-2 mb-3">
+                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wide ${tituloInfo.bg} ${tituloInfo.cor} flex items-center gap-1.5`}>
                            <TituloIcon size={12} /> {tituloInfo.titulo}
-                        </span>
-                        <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 text-amber-600 border border-amber-200">
-                           Nível {nivel}
                         </span>
                     </div>
                     
-                    <h1 className="text-3xl md:text-4xl font-black text-slate-800 mb-1">{perfil?.nome || "Estudante"}</h1>
-                    <p className="text-slate-400 font-medium mb-6">{user?.email}</p>
+                    {/* Nome Editável */}
+                    <div className="flex items-center justify-center md:justify-start gap-3 mb-1">
+                        {isEditing ? (
+                            <div className="flex items-center gap-2 w-full max-w-xs">
+                                <input 
+                                    autoFocus
+                                    type="text" 
+                                    value={tempName}
+                                    onChange={(e) => setTempName(e.target.value)}
+                                    className="text-2xl font-black text-slate-800 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                />
+                                <button onClick={salvarNome} disabled={isSaving} className="p-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors">
+                                    <Check size={18} />
+                                </button>
+                                <button onClick={() => { setIsEditing(false); setTempName(perfil.nome); }} className="p-2 bg-slate-200 text-slate-500 rounded-lg hover:bg-slate-300 transition-colors">
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <h1 className="text-3xl font-black text-slate-800 truncate max-w-[250px] md:max-w-md">
+                                    {perfil?.nome}
+                                </h1>
+                                <button onClick={() => setIsEditing(true)} className="text-slate-300 hover:text-violet-500 transition-colors p-1">
+                                    <Edit2 size={16} />
+                                </button>
+                            </>
+                        )}
+                    </div>
 
-                    {/* Barra de XP */}
-                    <div className="w-full max-w-md bg-slate-100 h-4 rounded-full overflow-hidden relative">
+                    {/* ID */}
+                    <div className="flex items-center justify-center md:justify-start gap-2 mb-5">
                         <div 
-                          className="bg-gradient-to-r from-[#0cb7f2] to-blue-500 h-full rounded-full transition-all duration-1000 ease-out" 
-                          style={{ width: `${progressoNivel}%` }}
-                        ></div>
+                           onClick={copiarID}
+                           className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-full cursor-pointer hover:bg-slate-100 transition-colors group"
+                        >
+                            <Hash size={12} className="text-slate-400"/>
+                            <span className="text-xs font-mono font-medium text-slate-500">
+                                {copiedId ? "Copiado!" : `ID: ${user?.id.slice(0, 8)}...`}
+                            </span>
+                            {!copiedId && <Copy size={10} className="text-slate-300 group-hover:text-violet-500"/>}
+                        </div>
                     </div>
-                    <div className="flex justify-between max-w-md mt-2 text-xs font-bold text-slate-400">
-                        <span>{xpAtual} XP</span>
-                        <span>{xpProximoNivel} XP (Próx. Nível)</span>
+
+                    {/* Barra de Progresso Roxa */}
+                    <div className="space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            <span>Progresso Atual</span>
+                            <span>{Math.round(progressoNivel)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${progressoNivel}%` }}
+                              transition={{ duration: 1.5, ease: "easeOut" }}
+                              className="bg-gradient-to-r from-violet-500 to-indigo-500 h-full rounded-full" 
+                            />
+                        </div>
+                        <div className="text-right text-[10px] font-bold text-slate-400">
+                            {xpProximoNivel - xpAtual} XP para o próximo nível
+                        </div>
                     </div>
-                </div>
-                
-                {/* Botão de Config (Decorativo) */}
-                <div className="absolute top-6 right-6">
-                    <button className="p-2 text-slate-300 hover:text-slate-500 transition-colors">
-                        <Settings size={24} />
-                    </button>
                 </div>
             </div>
         </motion.div>
 
-        {/* GRID DE ESTATÍSTICAS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        {/* ESTATÍSTICAS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
             <StatCard 
                icon={Zap} 
                label="Total de XP" 
-               value={xpAtual} 
+               value={xpAtual.toLocaleString()} 
                color={{bg: "bg-amber-50", text: "text-amber-500"}} 
                delay={0.1}
             />
             <StatCard 
                icon={Flame} 
-               label="Ofensiva (Dias)" 
-               value="3" 
+               label="Sequência (Dias)" 
+               value={streakAtual} 
                color={{bg: "bg-rose-50", text: "text-rose-500"}} 
                delay={0.2}
             />
             <StatCard 
                icon={Target} 
-               label="Precisão Média" 
-               value="87%" 
+               label="Precisão" 
+               value={`${perfil?.precisao || 0}%`} 
                color={{bg: "bg-emerald-50", text: "text-emerald-500"}} 
                delay={0.3}
             />
         </div>
 
-        {/* CONQUISTAS (VISUAL) */}
-        <motion.div initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 0.4}} className="bg-white rounded-3xl p-8 border border-slate-200">
-            <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
-                <Award className="text-amber-500"/> Conquistas Recentes
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-3 text-center transition-all ${i <= 2 ? "border-slate-100 bg-slate-50" : "border-slate-100 opacity-50 grayscale"}`}>
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${i <= 2 ? "bg-white shadow-sm" : "bg-slate-200"}`}>
-                            {i === 1 ? "🚀" : i === 2 ? "🔥" : i === 3 ? "🧠" : "🏆"}
-                        </div>
-                        <div>
-                            <div className="font-bold text-slate-700 text-sm">{i === 1 ? "Primeiro Passo" : i === 2 ? "Em Chamas" : "Sabe Tudo"}</div>
-                            <div className="text-[10px] text-slate-400 font-bold uppercase mt-1">{i <= 2 ? "Desbloqueado" : "Bloqueado"}</div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </motion.div>
+        {/* BOTÕES DE AÇÃO */}
+        <motion.div initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 0.4}} className="flex flex-col gap-3">
+             <button 
+                className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between text-slate-600 font-bold hover:bg-slate-50 transition-colors group"
+             >
+                <div className="flex items-center gap-3">
+                    <div className="bg-slate-100 p-2 rounded-lg text-slate-500 group-hover:text-violet-600 transition-colors"><Settings size={20}/></div>
+                    <span>Configurações da Conta</span>
+                </div>
+                <ArrowLeft size={16} className="rotate-180 text-slate-300"/>
+             </button>
 
-        {/* BOTÃO SAIR */}
-        <div className="mt-12 text-center">
-            <button 
-               onClick={sair} 
-               className="inline-flex items-center gap-2 text-rose-500 hover:text-rose-600 font-bold px-6 py-3 rounded-2xl hover:bg-rose-50 transition-colors"
-            >
+             <button 
+                onClick={sair} 
+                className="w-full bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center justify-center gap-2 text-rose-500 font-bold hover:bg-rose-100 transition-colors"
+             >
                 <LogOut size={18}/> Encerrar Sessão
             </button>
-            <p className="text-slate-300 text-xs mt-4 font-medium">MediLingo v1.0.0 (MVP)</p>
+        </motion.div>
+        
+        <div className="mt-8 text-center">
+            <p className="text-slate-300 text-[10px] font-bold uppercase tracking-widest">MedQuiz ID: {user?.id.slice(0,6)}</p>
         </div>
 
       </main>

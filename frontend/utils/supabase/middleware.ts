@@ -2,12 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-  // 1. Cria a resposta inicial
+  // 1. Prepara a resposta inicial
   let supabaseResponse = NextResponse.next({
     request,
   })
 
-  // 2. Instancia o cliente Supabase
+  // 2. Configura o cliente do Supabase
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -17,17 +17,8 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // Atualiza os cookies na requisição (para o Next ver agora)
-          cookiesToSet.forEach(({ name, value, options }) =>
-            request.cookies.set(name, value)
-          )
-          
-          // Atualiza a resposta inicial
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          
-          // Define os cookies na resposta final (para o navegador salvar)
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -36,33 +27,62 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // 3. Verifica o usuário. 
-  // IMPORTANTE: Não use apenas getUser() sem tratar erro, pois pode quebrar se o cookie estiver corrompido.
+  // --- ÁREA DE DIAGNÓSTICO (LOGS) ---
+  console.log("------------------------------------------------")
+  console.log(">>> MIDDLEWARE INICIADO")
+  console.log(">>> Rota tentada:", request.nextUrl.pathname)
+
+  // 3. Verifica o usuário
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser()
 
-  // --- REGRAS ATUALIZADAS ---
+  if (error) {
+    console.log(">>> Erro ao buscar usuário:", error.message)
+  }
+  
+  console.log(">>> Usuário está logado?", user ? "SIM (Email: " + user.email + ")" : "NÃO")
+  // ----------------------------------
 
-  // 1. Usuário LOGADO tentando acessar Login -> Manda para Dashboard
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  // Função auxiliar para redirecionar levando os cookies junto (Tratamento)
+  const redirectWithCookies = (path: string) => {
+    console.log(`>>> REDIRECIONANDO para: ${path}`) // Log extra aqui
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard' // MUDANÇA AQUI
-    return NextResponse.redirect(url)
+    url.pathname = path
+    const newResponse = NextResponse.redirect(url)
+    
+    // Transplante de cookies
+    const cookiesToSet = supabaseResponse.cookies.getAll()
+    cookiesToSet.forEach(cookie => {
+      newResponse.cookies.set(cookie)
+    })
+    
+    return newResponse
   }
 
-  // 2. Proteção de Rotas
-  // Se NÃO tem usuário e tenta acessar Dashboard ou outras áreas restritas
+  // REGRAS DE PROTEÇÃO
+
+  // A. Se estiver logado e tentar ir pro Login -> Dashboard
+  if (user && request.nextUrl.pathname.startsWith('/login')) {
+    return redirectWithCookies('/dashboard')
+  }
+
+  // B. Se NÃO estiver logado e tentar acessar rotas protegidas
   if (!user && (
-      request.nextUrl.pathname.startsWith('/dashboard') || // ADICIONADO
+      request.nextUrl.pathname.startsWith('/dashboard') || 
       request.nextUrl.pathname.startsWith('/perfil') || 
       request.nextUrl.pathname.startsWith('/erros') ||
-      request.nextUrl.pathname.startsWith('/praticar') // Ainda protegida, mas não é mais a home
+      request.nextUrl.pathname.startsWith('/praticar')
   )) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    console.log(">>> BLOQUEIO: Tentativa de acesso sem login. Redirecionando.")
+// Adiciona o parâmetro 'next' com a rota que ele tentou acessar
+    const loginUrl = `/login?next=${request.nextUrl.pathname}`
+  return redirectWithCookies(loginUrl)
   }
 
+  console.log(">>> ACESSO PERMITIDO. Passando para a página.")
+  console.log("------------------------------------------------")
+  
   return supabaseResponse
 }

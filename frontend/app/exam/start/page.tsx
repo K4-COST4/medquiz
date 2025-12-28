@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, Suspense } from "react" // <--- Adicionei Suspense aqui
+import { useState, useEffect, useRef, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { 
   Clock, ChevronRight, ChevronLeft, AlertCircle, Bot, CheckCircle2, XCircle, 
@@ -21,8 +21,10 @@ import { useToast } from "@/hooks/use-toast"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
+// --- IMPORTS DAS AÇÕES ---
 import { fetchExamQuestions } from "./actions"
 import { chatWithMedAI, getRemainingDailyUses } from "./ai-action"
+import { updateStreak } from "@/app/actions/streak" // <--- 1. IMPORTADO O STREAK
 
 // --- TIPOS ---
 type QuestionType = 'MULTIPLE_CHOICE' | 'DISCURSIVE'
@@ -50,7 +52,7 @@ interface Participant {
   isOnline: boolean
 }
 
-// --- COMPONENTE INTERNO COM A LÓGICA (ANTIGO ExamEnginePage) ---
+// --- COMPONENTE INTERNO ---
 function ExamContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -75,6 +77,7 @@ function ExamContent() {
   const [answers, setAnswers] = useState<Record<string, any>>({}) 
   const [timeLeft, setTimeLeft] = useState(timeLimitSeconds) 
   const [isFinished, setIsFinished] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false) // <--- 2. TRAVA DE SUBMISSÃO
   
   // -- UI --
   const [showAnswer, setShowAnswer] = useState(mode === 'PEEK') 
@@ -87,7 +90,7 @@ function ExamContent() {
   const [usesLeft, setUsesLeft] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // -- MULTIPLAYER (PREPARAÇÃO) --
+  // -- MULTIPLAYER --
   const [participants, setParticipants] = useState<Participant[]>([
     { id: 'me', name: 'Você', initials: 'EU', isOnline: true }
   ])
@@ -138,7 +141,7 @@ function ExamContent() {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer)
-          finishExam()
+          finishExam() // Chama a finalização quando o tempo acaba
           return 0
         }
         return prev - 1
@@ -178,7 +181,7 @@ function ExamContent() {
       setShowAnswer(mode === 'PEEK') 
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      finishExam()
+      finishExam() // Fim das questões
     }
   }
 
@@ -190,13 +193,24 @@ function ExamContent() {
     }
   }
 
-  const finishExam = () => {
-    setIsFinished(true)
+  // --- 3. FUNÇÃO FINALIZAR BLINDADA ---
+  const finishExam = async () => {
+    // Se já estiver enviando ou já finalizou, aborta para não duplicar
+    if (isSubmitting || isFinished) return
     
-    // 1. Calcula o tempo gasto
+    setIsSubmitting(true) // Ativa a trava
+    setIsFinished(true)   // Para o timer visualmente
+    
+    // a. Tenta atualizar o foguinho (Sem travar o resto se falhar)
+    try {
+        await updateStreak()
+    } catch (error) {
+        console.error("Erro ao atualizar streak:", error)
+    }
+
+    // b. Calcula estatísticas
     const usedTime = timeLimitSeconds - timeLeft
 
-    // 2. Monta o payload
     const resultPayload = {
         questions: questions,
         answers: answers,
@@ -205,12 +219,11 @@ function ExamContent() {
         date: new Date().toISOString()
     }
 
-    // 3. Salva
+    // c. Salva e Notifica
     localStorage.setItem('last_exam_result', JSON.stringify(resultPayload))
-
-    toast({ title: "Prova Finalizada!", description: "Gerando seu relatório..." })
+    toast({ title: "Prova Finalizada! 🔥", description: "Gerando seu relatório..." })
     
-    // 4. Redireciona
+    // d. Redireciona
     setTimeout(() => {
         router.push('/exam/result')
     }, 1000)
@@ -282,7 +295,6 @@ function ExamContent() {
                   <ArrowLeft size={20} />
                </Button>
                
-               {/* ÁREA MULTIPLAYER (PREPARADA) */}
                <div className="hidden sm:flex items-center -space-x-2 border-l pl-4 ml-2 border-slate-200 dark:border-slate-700 h-8">
                   {participants.map((p) => (
                       <div key={p.id} className="relative group cursor-help" title={`${p.name} (Online)`}>
@@ -436,14 +448,29 @@ function ExamContent() {
               <Button variant="ghost" onClick={() => setCurrentQIndex(prev => Math.max(0, prev - 1))} disabled={currentQIndex === 0}>
                 <ChevronLeft className="mr-1" size={18} /> Anterior
               </Button>
-              <Button size="lg" onClick={handleNext} className={`min-w-[140px] font-bold text-white shadow-lg transition-all active:scale-95 ${showAnswer || mode !== 'IMMEDIATE' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-                {mode === 'IMMEDIATE' && !showAnswer ? (<>CORRIGIR <PlayCircle size={18} className="ml-2" /></>) : (currentQIndex === totalQuestions - 1 ? (<>FINALIZAR <CheckCircle2 size={18} className="ml-2" /></>) : (<>PRÓXIMA <ChevronRight size={18} className="ml-2" /></>))}
+              
+              {/* BOTÃO FINALIZAR PROTEGIDO */}
+              <Button 
+                 size="lg" 
+                 onClick={handleNext} 
+                 disabled={isSubmitting} // <--- BLOQUEIO VISUAL
+                 className={`
+                    min-w-[140px] font-bold text-white shadow-lg transition-all active:scale-95 
+                    ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''} 
+                    ${showAnswer || mode !== 'IMMEDIATE' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}
+                 `}
+              >
+                {isSubmitting ? (
+                    <Loader2 className="animate-spin" size={18} />
+                ) : (
+                    mode === 'IMMEDIATE' && !showAnswer ? (<>CORRIGIR <PlayCircle size={18} className="ml-2" /></>) : (currentQIndex === totalQuestions - 1 ? (<>FINALIZAR <CheckCircle2 size={18} className="ml-2" /></>) : (<>PRÓXIMA <ChevronRight size={18} className="ml-2" /></>))
+                )}
               </Button>
            </div>
         </div>
       </footer>
 
-      {/* SHEET DA IA */}
+      {/* SHEET DA IA (Mantido igual) */}
       <Sheet open={aiOpen} onOpenChange={setAiOpen}>
         <SheetContent className="w-[400px] sm:w-[540px] flex flex-col p-0">
           <SheetHeader className="p-6 border-b bg-indigo-50/50 dark:bg-indigo-900/10">
@@ -487,7 +514,6 @@ function ExamContent() {
   )
 }
 
-// --- WRAPPER DO SUSPENSE (CORREÇÃO DO ERRO) ---
 export default function ExamEnginePage() {
   return (
     <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950"><Loader2 className="h-10 w-10 animate-spin text-indigo-600" /></div>}>
