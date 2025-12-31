@@ -126,7 +126,7 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
     let newTitle = null
     if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 1)) {
         try {
-            const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-pro" })
+            const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
             const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
             const titleResult = await titleModel.generateContent(titlePrompt)
             const generatedTitle = titleResult.response.text()
