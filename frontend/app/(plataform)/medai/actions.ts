@@ -1,9 +1,15 @@
-'use server'
+"use server";
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { createClient } from "@/utils/supabase/server"
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+// Instancia dentro da função para garantir que a env var carregue no runtime correto
+const getGenAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error("Chave GEMINI_API_KEY não configurada")
+  return new GoogleGenerativeAI(apiKey)
+}
+
 const DAILY_LIMIT = 5
 
 // --- GERENCIAMENTO DE SESSÕES ---
@@ -42,7 +48,6 @@ export async function deleteSession(sessionId: string) {
   await supabase.from('medai_sessions').delete().eq('id', sessionId)
 }
 
-// NOVA FUNÇÃO: Renomear manualmente
 export async function renameSession(sessionId: string, newTitle: string) {
   const supabase = await createClient()
   await supabase
@@ -78,7 +83,7 @@ export async function getRemainingDailyUses() {
   return Math.max(0, DAILY_LIMIT - (usageData?.request_count || 0))
 }
 
-// --- LÓGICA DO CHAT (COM AUTO-TITLE) ---
+// --- LÓGICA DO CHAT (OTIMIZADA) ---
 
 export async function sendMessage({ sessionId, message }: { sessionId: string, message: string }) {
   const supabase = await createClient()
@@ -100,87 +105,98 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
   }
 
   try {
-    // 2. Salvar mensagem do usuário
+    const genAI = getGenAI()
+
+    // 2. Salvar mensagem do usuário (Await aqui é importante para manter ordem)
     await supabase.from('medai_messages').insert({
       session_id: sessionId,
       role: 'user',
       content: message
     })
 
-    // 3. Recuperar histórico para contexto
+    // 3. Recuperar histórico
     const { data: historyData } = await supabase
       .from('medai_messages')
       .select('role, content')
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
-      .limit(20)
+      // Removemos o limite de 20 para o contexto não quebrar em conversas longas,
+      // ou aumentamos para garantir contexto suficiente. O Flash aguenta muito token.
+      .limit(50) 
 
-    // 4. Instancia o Modelo
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
-
-    // 5. AUTO-TITLE: Se for a primeira mensagem ou o título for padrão, gera um novo
-    // Verifica quantas mensagens existem. Se tiver poucas (ex: acabamos de inserir a primeira user + a resposta virá), gera título.
-    // Ou verifica se o título atual é "Nova Conversa"
-    const { data: currentSession } = await supabase.from('medai_sessions').select('title').eq('id', sessionId).single()
+    // --- PREPARAÇÃO DAS TAREFAS PARALELAS ---
     
-    let newTitle = null
-    if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 1)) {
-        try {
-            const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
-            const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
-            const titleResult = await titleModel.generateContent(titlePrompt)
-            const generatedTitle = titleResult.response.text()
-            
-            if (generatedTitle) {
-                newTitle = generatedTitle
-                await supabase.from('medai_sessions').update({ title: generatedTitle }).eq('id', sessionId)
+    // Tarefa A: Gerar o Título (Se necessário)
+    const titlePromise = (async () => {
+        const { data: currentSession } = await supabase.from('medai_sessions').select('title').eq('id', sessionId).single()
+        
+        // Só gera se for "Nova Conversa" ou tivermos muito poucas mensagens (início do papo)
+        if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 2)) {
+            try {
+                // CORRIGIDO: Nome do modelo
+                const titleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+                const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
+                const titleResult = await titleModel.generateContent(titlePrompt)
+                const generatedTitle = titleResult.response.text()
+                
+                if (generatedTitle) {
+                    await supabase.from('medai_sessions').update({ title: generatedTitle }).eq('id', sessionId)
+                    return generatedTitle
+                }
+            } catch (err) {
+                console.error("Erro título:", err)
             }
-        } catch (err) {
-            console.error("Erro ao gerar título automático (não crítico):", err)
         }
-    }
+        return null
+    })()
 
-    // 6. Resposta Principal da IA
-    const chat = model.startChat({
-      history: historyData?.map((msg: any) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      })) || [],
-    })
-
-    const systemPrompt = `
-      Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
+    // Tarefa B: Gerar a Resposta Principal
+    const chatPromise = (async () => {
+        // CORRIGIDO: Nome do modelo para 1.5-flash
+        // System Prompt movido para systemInstruction (Mais robusto)
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash",
+            systemInstruction: `
+              Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
       
-      SEU OBJETIVO:
-      Ajudar com dúvidas gerais, etiologias, conceitos, fisiopatologia, diagnóstico, tratamento, farmacologia, resumos de diretrizes e casos clínicos simulados.
-      
-      REGRAS:
-      1. Respostas diretas, técnicas, mas didáticas.
-      2. Use Markdown para formatar (negrito, listas, tabelas).
-      3. Se for um caso clínico, ajude a raciocinar o diagnóstico diferencial.
-      4. Sempre cite a base (ex: "Segundo o Harrison..." ou "Diretrizes da SBC...") quando possível.
-      5. Sempre use como referências diretrizes médicas reconhecidas, artigos científicos e livros-texto.
-      6. Nunca forneça aconselhamento médico real ou diagnóstico.
-      7. Mantenha a ética e a privacidade do paciente em mente.
-      8. Se a pergunta não for médica, ou se for um caso clínico, ou da área da saúde, recuse educadamente.
-    `
-    
-    const result = await chat.sendMessage(`${systemPrompt}\n\n${message}`)
-    const responseText = result.response.text()
+              SEU OBJETIVO:
+              Ajudar com dúvidas gerais, etiologias, conceitos, fisiopatologia, diagnóstico, tratamento, farmacologia, resumos de diretrizes e casos clínicos simulados.
+              
+              REGRAS:
+              1. Respostas diretas, técnicas, mas didáticas. Use Markdow para formatar (negrito, listas, tabelas).
+              2. Se for um caso clínico, ajude a raciocinar o diagnóstico diferencial.
+              3. Sempre responda baseado em referências e diretrizes, livros-texto confiávei e artigo cietíficos, e cite a base (ex: "Segundo o Harrison..." ou "Diretrizes da SBC...") quando possível.
+              4. Nunca forneça aconselhamento médico real ou diagnóstico. Mantenha a ética e a privacidade do paciente em mente.
+              4. Se a pergunta não for médica, ou se for um caso clínico, ou da área da saúde, recuse educadamente.
+            `
+        })
 
-    // 7. Salvar resposta da IA
+        const chat = model.startChat({
+            history: historyData?.map((msg: any) => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }],
+            })) || [],
+        })
+
+        const result = await chat.sendMessage(message)
+        return result.response.text()
+    })()
+
+    // 4. Executa Título e Chat AO MESMO TEMPO
+    const [newTitle, responseText] = await Promise.all([titlePromise, chatPromise])
+
+    // 5. Salvar resposta da IA
     await supabase.from('medai_messages').insert({
       session_id: sessionId,
       role: 'ai',
       content: responseText
     })
 
-    // 8. Atualizar timestamp da sessão
+    // 6. Atualizar timestamp e contador
     await supabase.from('medai_sessions')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', sessionId)
 
-    // 9. Incrementar uso
     await supabase.from('daily_ai_usage').upsert({
       user_id: user.id,
       usage_date: today,
@@ -191,11 +207,11 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
         success: true, 
         message: responseText, 
         usesLeft: DAILY_LIMIT - (currentCount + 1),
-        newTitle: newTitle // Retorna o título novo para o front atualizar
+        newTitle: newTitle 
     }
 
   } catch (error) {
     console.error("Erro MedAI:", error)
-    return { success: false, message: "Erro de conexão." }
+    return { success: false, message: "Erro de conexão ou modelo indisponível." }
   }
 }
