@@ -7,8 +7,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Check, Star, Lock, Trophy, Zap, Flame, 
   ChevronLeft, ChevronRight, BookOpen, Crown,
-  Shield, Gem, Loader2, Skull, AlertTriangle, Swords
+  Shield, Gem, Loader2, Skull, AlertTriangle, Swords, Info
 } from "lucide-react";
+import Link from "next/link";
+
 
 // --- CONFIGURAÇÃO SUPABASE ---
 const supabase = createBrowserClient(
@@ -324,13 +326,24 @@ export default function TrilhaMapPage({ params }: { params: Promise<{ id: string
                sections.map((section) => (
                  <div key={section.id} className="w-full flex flex-col items-center">
                     
-                    {/* TÍTULO DA SEÇÃO (OBJETIVO) */}
-                    <div className="w-full flex items-center justify-center my-6">
-                        <div className="h-[1px] bg-slate-200 w-16"></div>
-                        <h3 className="mx-4 text-xs font-bold uppercase tracking-widest text-slate-400 text-center max-w-[200px]">
-                            {section.title}
-                        </h3>
-                        <div className="h-[1px] bg-slate-200 w-16"></div>
+                    {/* TÍTULO DA SEÇÃO (OBJETIVO) - COM BOTÃO INFO */}
+                    <div className="w-full flex items-center justify-center my-6 group">
+                        {/* Linha decorativa esquerda (reage ao hover) */}
+                        <div className="h-[1px] bg-slate-200 w-10 md:w-16 group-hover:bg-violet-200 transition-colors duration-300"></div>
+                        
+                        <Link 
+                            href={`/trilha/${section.id}/info`}
+                            className="mx-2 flex items-center gap-2 px-4 py-1.5 rounded-full hover:bg-violet-50 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-transparent hover:border-violet-100 hover:shadow-sm"
+                            title="Ver Briefing da Missão"
+                        >
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 group-hover:text-violet-600 text-center max-w-[200px] transition-colors">
+                                {section.title}
+                            </h3>
+                            <Info size={14} className="text-slate-300 group-hover:text-violet-500 transition-colors mb-0.5" />
+                        </Link>
+                        
+                        {/* Linha decorativa direita */}
+                        <div className="h-[1px] bg-slate-200 w-10 md:w-16 group-hover:bg-violet-200 transition-colors duration-300"></div>
                     </div>
 
                     {/* AS ILHAS DESTA SEÇÃO */}

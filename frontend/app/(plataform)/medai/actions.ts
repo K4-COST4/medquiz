@@ -134,7 +134,7 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
         if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 2)) {
             try {
                 // CORRIGIDO: Nome do modelo
-                const titleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+                const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
                 const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
                 const titleResult = await titleModel.generateContent(titlePrompt)
                 const generatedTitle = titleResult.response.text()
@@ -155,7 +155,7 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
         // CORRIGIDO: Nome do modelo para 1.5-flash
         // System Prompt movido para systemInstruction (Mais robusto)
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash",
             systemInstruction: `
               Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
       

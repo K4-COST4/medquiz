@@ -55,10 +55,10 @@ function FormattedText({ text, className = "" }: { text: string, className?: str
 
 // --- LÓGICA DE MAESTRIA ---
 const MASTERY_RULES = {
-  0: { easy: 8, medium: 2, hard: 0 },
-  1: { easy: 3, medium: 6, hard: 1 },
-  2: { easy: 0, medium: 8, hard: 2 },
-  3: { easy: 3, medium: 4, hard: 3 },
+  0: { easy: 5, medium: 0, hard: 0 },
+  1: { easy: 0, medium: 5, hard: 0 },
+  2: { easy: 0, medium: 3, hard: 2 },
+  3: { easy: 0, medium: 2, hard: 3 }, // Revisão Dourada
 };
 
 function getIdealSessionStructure(level: 0 | 1 | 2 | 3): Difficulty[] {
@@ -70,6 +70,88 @@ function getIdealSessionStructure(level: 0 | 1 | 2 | 3): Difficulty[] {
   return structure.sort(() => Math.random() - 0.5);
 }
 
+// --- WIDGET FILL GAP (Coloque ACIMA do "export default function QuizPage") ---
+import React, { useMemo } from 'react'; // Certifique-se de importar useMemo lá em cima
+
+const FillGapWidget = ({ question, isAnswered, selectedOption, setSelectedOption, inputValue, setInputValue, isCorrect }: any) => {
+  const content = question.content;
+  const hasOptions = content.options && content.options.length > 0;
+
+  // Memoriza a ordem embaralhada para não pular quando clicar
+  const shuffledOptions = useMemo(() => {
+    if (hasOptions) return shuffleArray(content.options);
+    return [];
+  }, [question.id]); // Só reembaralha se mudar de questão
+
+  // CASO 1: Questão Antiga (Input de Texto)
+  if (!hasOptions) {
+    return (
+      <div className="bg-white p-6 rounded-2xl border-2 border-slate-200 text-lg font-medium leading-relaxed">
+        <FormattedText text={content.text_start} />
+        <input 
+          type="text" 
+          disabled={isAnswered} 
+          value={inputValue} 
+          onChange={(e) => setInputValue(e.target.value)} 
+          placeholder="..."
+          className={`mx-2 border-b-2 outline-none px-1 text-center font-bold min-w-[100px] w-auto inline-block ${
+             isAnswered ? (isCorrect ? "border-emerald-500 text-emerald-600" : "border-rose-500 text-rose-600") : "border-slate-300 focus:border-violet-500 focus:bg-violet-50"
+          }`}
+        />
+        <FormattedText text={content.text_end} />
+        {isAnswered && !isCorrect && <div className="mt-4 text-sm font-bold text-emerald-600">Resposta: {content.correct_answer}</div>}
+      </div>
+    );
+  }
+
+  // CASO 2: Questão Nova (Botões estilo Duolingo)
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Frase com destaque visual no buraco */}
+      <div className="bg-white p-6 rounded-2xl border-2 border-slate-200 text-lg md:text-xl font-medium leading-relaxed text-center shadow-sm">
+        <FormattedText text={content.text_start} />
+        <span className={`inline-block mx-2 px-3 py-1 border-b-4 rounded-t min-w-[100px] font-bold transition-colors ${
+           isAnswered 
+             ? (isCorrect ? "border-emerald-500 text-emerald-700 bg-emerald-50" : "border-rose-500 text-rose-700 bg-rose-50")
+             : (selectedOption ? "border-violet-500 text-violet-700 bg-violet-50" : "border-slate-300 bg-slate-50 text-slate-400")
+        }`}>
+           {/* Mostra o que o usuário clicou, ou a resposta certa se já acabou, ou sublinhado vazio */}
+           {isAnswered ? (selectedOption || content.correct_answer) : (selectedOption || "_____")}
+        </span>
+        <FormattedText text={content.text_end} />
+      </div>
+
+      {/* Grid de Opções */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {shuffledOptions.map((opt: string, idx: number) => {
+           const isSelected = selectedOption === opt;
+           const isTheCorrectOne = opt === content.correct_answer;
+           
+           let btnStyle = "bg-white border-slate-200 text-slate-700 hover:border-violet-300 hover:bg-slate-50"; // Padrão
+           
+           if (isAnswered) {
+             if (isTheCorrectOne) btnStyle = "bg-emerald-100 border-emerald-500 text-emerald-800"; // Gabarito
+             else if (isSelected && !isTheCorrectOne) btnStyle = "bg-rose-100 border-rose-500 text-rose-800 opacity-60"; // Erro
+             else btnStyle = "opacity-40 border-slate-100"; // Resto
+           } else if (isSelected) {
+             btnStyle = "bg-violet-600 border-violet-600 text-white shadow-lg shadow-violet-200 scale-[1.02]"; // Selecionado
+           }
+
+           return (
+             <button
+               key={idx}
+               disabled={isAnswered}
+               onClick={() => setSelectedOption(opt)}
+               className={`p-4 rounded-xl border-2 font-bold text-lg transition-all active:scale-95 ${btnStyle}`}
+             >
+               {opt}
+             </button>
+           );
+        })}
+      </div>
+    </div>
+  );
+};
 export default function QuizPage({ params }: { params: Promise<{ node_id: string }> }) {
   const router = useRouter();
   const resolvedParams = use(params);
@@ -358,8 +440,16 @@ export default function QuizPage({ params }: { params: Promise<{ node_id: string
     }
     else if (currentQ.q_type === 'fill_gap') {
       const answer = currentQ.content.correct_answer.toLowerCase().trim();
-      const input = inputValue.toLowerCase().trim();
-      correct = input === answer;
+      
+      // Lógica Híbrida:
+      // Se tiver opções (novo), valida pelo botão selecionado (selectedOption)
+      // Se não tiver (velho), valida pelo input digitado (inputValue)
+      if (currentQ.content.options && currentQ.content.options.length > 0) {
+         correct = selectedOption === currentQ.content.correct_answer; // Comparação exata (Case sensitive da string do botão)
+      } else {
+         const input = inputValue.toLowerCase().trim();
+         correct = input === answer;
+      }
     }
     else if (currentQ.q_type === 'open_ended') {
       correct = true; 
@@ -542,8 +632,10 @@ export default function QuizPage({ params }: { params: Promise<{ node_id: string
   }
 
   const currentQ = questions[currentQIndex];
-  const isButtonDisabled = currentQ.q_type === 'fill_gap' ? inputValue.trim() === "" : selectedOption === null;
-
+// Lógica atualizada: Se for Fill Gap com opções (botões), verifica selectedOption. Se for antigo (input), verifica inputValue.
+  const isButtonDisabled = currentQ.q_type === 'fill_gap'
+  ? (currentQ.content.options && currentQ.content.options.length > 0 ? selectedOption === null : inputValue.trim() === "")
+  : selectedOption === null;
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-24">
       
@@ -629,16 +721,17 @@ export default function QuizPage({ params }: { params: Promise<{ node_id: string
             )}
 
             {/* FILL GAP */}
+            {/* FILL GAP (Versão Componentizada) */}
             {currentQ.q_type === 'fill_gap' && (
-                <div className="bg-white p-6 rounded-2xl border-2 border-slate-200 text-lg font-medium leading-relaxed">
-                    <FormattedText text={currentQ.content.text_start} />
-                    <input type="text" disabled={isAnswered} value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="..."
-                        className={`mx-2 border-b-2 outline-none px-1 text-center font-bold min-w-[100px] w-auto inline-block ${
-                            isAnswered ? (isCorrect ? "border-emerald-500 text-emerald-600" : "border-rose-500 text-rose-600") : "border-slate-300 focus:border-violet-500 focus:bg-violet-50"
-                        }`}/>
-                    <FormattedText text={currentQ.content.text_end} />
-                    {isAnswered && !isCorrect && <div className="mt-4 text-sm font-bold text-emerald-600">Resposta: {currentQ.content.correct_answer}</div>}
-                </div>
+                <FillGapWidget 
+                  question={currentQ}
+                  isAnswered={isAnswered}
+                  selectedOption={selectedOption}
+                  setSelectedOption={setSelectedOption}
+                  inputValue={inputValue}
+                  setInputValue={setInputValue}
+                  isCorrect={isCorrect}
+                />
             )}
 
             {/* FLASHCARD */}
@@ -708,4 +801,13 @@ export default function QuizPage({ params }: { params: Promise<{ node_id: string
       
     </div> // Fim da div principal
   );
+}
+// --- FUNÇÃO AUXILIAR (Coloque no final do arquivo, fora do QuizPage) ---
+function shuffleArray(array: any[]) {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
 }

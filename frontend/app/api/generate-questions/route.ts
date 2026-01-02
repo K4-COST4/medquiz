@@ -48,11 +48,10 @@ export async function POST(req: Request) {
       Dificuldades solicitadas (na ordem): ${neededDifficulties.join(", ")}.
 
       === TIPOS DE QUESTÃO (IMPORTANTE: Escolha ALEATORIAMENTE para cada questão) ===
-      Para cada questão, escolha um destes tipos (tente variar):
+      Para cada questão, escolha um destes 3 tipos (tente variar entre eles):
       1. "multiple_choice": Clássica, 4 alternativas.
       2. "true_false": Julgar uma afirmação.
-      3. "fill_gap": Completar uma frase chave.
-      4. "open_ended": Flashcard reverso (pergunta e resposta mental).
+      3. "fill_gap": Completar uma frase chave com opções clicáveis.
 
       === FORMATO JSON OBRIGATÓRIO ===
       Retorne um ARRAY de objetos contendo TODAS as ${neededDifficulties.length} questões.
@@ -85,7 +84,7 @@ export async function POST(req: Request) {
         }
       }
 
-      3. TIPO 'fill_gap':
+      3. TIPO 'fill_gap' (ESTILO "SELECIONAR A PALAVRA"):
       {
         "statement": "Complete a lacuna sobre o conceito X:",
         "q_type": "fill_gap",
@@ -94,20 +93,15 @@ export async function POST(req: Request) {
         "content": {
           "text_start": "O início da frase até a lacuna",
           "text_end": "o restante da frase após a lacuna (ou ponto final).",
-          "correct_answer": "PalavraOuTermoOculto"
+          "correct_answer": "PalavraCerta",
+          "options": ["PalavraCerta", "Distrator1", "Distrator2", "Distrator3"] 
         }
       }
-
-      4. TIPO 'open_ended':
-      {
-        "statement": "Pergunta direta para o aluno responder mentalmente.",
-        "q_type": "open_ended",
-        "difficulty": "...",
-        "commentary": "Detalhes adicionais...",
-        "content": {
-          "answer": "A resposta correta e completa."
-        }
-      }
+      
+      NOTA PARA O FILL_GAP:
+      - O array "options" deve conter 4 strings: a "correct_answer" e 3 distratores incorretos mas plausíveis (do mesmo contexto semântico).
+      - Exemplo: Se a resposta for "Mitral", as opções podem ser ["Mitral", "Tricúspide", "Aórtica", "Pulmonar"].
+      - Não use sinônimos da resposta certa como distratores.
     `;
 
     // 3. Chamar a IA (UMA ÚNICA VEZ PARA O BLOCO INTEIRO)
