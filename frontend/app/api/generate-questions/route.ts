@@ -2,7 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-// Configuração do Supabase
+// Configurações de execução
+export const maxDuration = 60; // Limite de 60s para a IA pensar
+export const dynamic = 'force-dynamic';
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,122 +16,151 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    // Recebemos aiContext do Frontend (vindo do banco de dados)
-    // neededDifficulties agora é let para podermos modificar se vier vazio
-    let { nodeId, topic, aiContext, neededDifficulties } = body;
 
-    // Validação básica (neededDifficulties não é mais obrigatório aqui, pois temos fallback)
+    // --- PARÂMETROS DO MAESTRO ---
+    // mode: 'standard' | 'boss' | 'kahoot'
+    // neededDifficulties: Array de strings (ex: ['easy', 'hard']) - O que falta criar?
+    // forcedTypes: Array de strings (opcional) - Ex: ['multiple_choice'] para Kahoot
+    let { nodeId, topic, aiContext, mode, neededDifficulties, forcedTypes } = body;
+
     if (!nodeId || !topic) {
-      return NextResponse.json({ error: "Dados incompletos (NodeID ou Tópico faltando)" }, { status: 400 });
+      return NextResponse.json({ error: "Dados vitais faltando (NodeID/Topic)" }, { status: 400 });
     }
 
-    // --- LÓGICA DE ECONOMIA DE REQUISIÇÕES ---
-    // Se o frontend não especificar quantidade, geramos um BLOCO DE 5 por padrão.
-    // Isso garante que cada chamada à IA valha a pena financeiramente.
-    if (!neededDifficulties || neededDifficulties.length === 0) {
-        // Mix padrão: 1 Fácil, 2 Médias, 2 Difíceis
-        neededDifficulties = ['easy', 'medium', 'medium', 'hard', 'hard'];
+    // 1. LÓGICA DE MODO (O Maestro decide a regência)
+    let difficultyRecipe: string[] = [];
+    let allowedTypes: string[] = [];
+
+    switch (mode) {
+      case 'boss':
+        // BOSS: Fixo e Brutal (10 questões pesadas)
+        difficultyRecipe = Array(5).fill('medium').concat(Array(5).fill('hard'));
+        allowedTypes = ['multiple_choice', 'true_false', 'fill_gap'];
+        break;
+
+      case 'kahoot':
+        // KAHOOT: Competitivo (Geralmente só Multipla Escolha para ser rápido)
+        // Se não vier dificuldades, assume 5 médias/difíceis
+        difficultyRecipe = neededDifficulties && neededDifficulties.length > 0
+          ? neededDifficulties
+          : ['medium', 'medium', 'hard', 'hard', 'hard'];
+        allowedTypes = ['multiple_choice']; // Kahoot raramente usa true_false ou gap complexo
+        break;
+
+      case 'standard':
+      default:
+        // PADRÃO/ADAPTATIVO: Obedece estritamente o que o SQL pediu (neededDifficulties)
+        // Se vier vazio (fallback), cria um mix básico
+        difficultyRecipe = neededDifficulties && neededDifficulties.length > 0
+          ? neededDifficulties
+          : ['easy', 'medium', 'medium', 'hard', 'hard'];
+        allowedTypes = forcedTypes || ['multiple_choice', 'true_false', 'fill_gap'];
+        break;
     }
 
-    const model = genAI.getGenerativeModel({ 
+    // Se a receita estiver vazia por algum erro lógico, aborta para não gastar IA
+    if (difficultyRecipe.length === 0) {
+      return NextResponse.json({ success: true, message: "Nada a gerar.", count: 0, data: [] });
+    }
+
+    // 2. PREPARAÇÃO DA IA
+    const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      generationConfig: { responseMimeType: "application/json" } // Força resposta JSON
+      generationConfig: { responseMimeType: "application/json" }
     });
 
-    // PROMPT ENGENHEIRADO PARA VARIEDADE E FORMATO RÍGIDO
+    // 3. O PROMPT DE ENGENHARIA (O Partitura)
     const prompt = `
-      Você é um Professor de Medicina Especialista criando questões para o MedQuiz.
+      Você é o motor de geração de questões do MedQuiz.
       
-      === CONTEXTO DA AULA ===
-      Tópico Principal: ${topic}
-      Diretrizes Específicas (AI Context): ${aiContext || "Foque nos conceitos fundamentais, clínicos e fisiopatológicos relevantes para este tópico."}
+      === PARÂMETROS DA SESSÃO ===
+      Tópico: ${topic}
+      Contexto Clínico: ${aiContext || "Geral"}
+      Modo de Jogo: ${mode?.toUpperCase() || "PADRÃO"}
       
-      === TAREFA ===
-      Gere exatas ${neededDifficulties.length} questões.
-      Dificuldades solicitadas (na ordem): ${neededDifficulties.join(", ")}.
+      === SUA TAREFA ===
+      Gere EXATAMENTE ${difficultyRecipe.length} questões.
+      Dificuldades Obrigatórias (na ordem): ${difficultyRecipe.join(", ")}.
+      Tipos Permitidos: ${allowedTypes.join(", ")}.
 
-      === TIPOS DE QUESTÃO (IMPORTANTE: Escolha ALEATORIAMENTE para cada questão) ===
-      Para cada questão, escolha um destes 3 tipos (tente variar entre eles):
-      1. "multiple_choice": Clássica, 4 alternativas.
-      2. "true_false": Julgar uma afirmação.
-      3. "fill_gap": Completar uma frase chave com opções clicáveis.
+      === REGRAS DE ESTILO ===
+      ${mode === 'kahoot' ? "- KAHOOT MODE: Enunciados curtos e diretos (máx 120 caracteres). Alternativas curtas." : "- PADRÃO: Enunciados detalhados, foco em casos clínicos e fisiopatologia."}
+      ${mode === 'boss' ? "- BOSS MODE: Questões 'hard' devem ser multidisciplinares e complexas." : ""}
+      
+      === FORMATO JSON (ARRAY) ===
+      Retorne um array de objetos. Estrutura obrigatória para cada tipo:
 
-      === FORMATO JSON OBRIGATÓRIO ===
-      Retorne um ARRAY de objetos contendo TODAS as ${neededDifficulties.length} questões.
-      Siga ESTRITAMENTE a estrutura do campo "content" para cada tipo:
-
-      1. TIPO 'multiple_choice':
+      TIPO 'multiple_choice':
       {
-        "statement": "Enunciado clínico ou teórico...",
+        "statement": "...",
         "q_type": "multiple_choice",
-        "difficulty": "definido pela ordem",
-        "commentary": "Explicação detalhada...",
+        "difficulty": "...",
+        "commentary": "Explicação educativa...",
         "content": {
           "options": [
-             { "id": "a", "text": "Incorreta", "isCorrect": false },
-             { "id": "b", "text": "Correta", "isCorrect": true },
-             { "id": "c", "text": "Incorreta", "isCorrect": false },
-             { "id": "d", "text": "Incorreta", "isCorrect": false }
+             { "id": "a", "text": "Errada", "isCorrect": false },
+             { "id": "b", "text": "Certa", "isCorrect": true },
+             { "id": "c", "text": "Errada", "isCorrect": false },
+             { "id": "d", "text": "Errada", "isCorrect": false }
           ]
         }
       }
 
-      2. TIPO 'true_false':
+      ${allowedTypes.includes('true_false') ? `
+      TIPO 'true_false':
       {
-        "statement": "Uma afirmação médica completa para ser julgada.",
+        "statement": "Afirmação completa...",
         "q_type": "true_false",
         "difficulty": "...",
-        "commentary": "Por que é verdadeiro ou falso...",
-        "content": {
-          "isTrue": true // ou false
-        }
-      }
+        "commentary": "...",
+        "content": { "isTrue": true }
+      }` : ""}
 
-      3. TIPO 'fill_gap' (ESTILO "SELECIONAR A PALAVRA"):
+      ${allowedTypes.includes('fill_gap') ? `
+      TIPO 'fill_gap':
       {
-        "statement": "Complete a lacuna sobre o conceito X:",
+        "statement": "Complete...",
         "q_type": "fill_gap",
         "difficulty": "...",
-        "commentary": "Explicação...",
+        "commentary": "...",
         "content": {
-          "text_start": "O início da frase até a lacuna",
-          "text_end": "o restante da frase após a lacuna (ou ponto final).",
-          "correct_answer": "PalavraCerta",
-          "options": ["PalavraCerta", "Distrator1", "Distrator2", "Distrator3"] 
+          "text_start": "...",
+          "text_end": "...",
+          "correct_answer": "Resposta",
+          "options": ["Resposta", "Distrator1", "Distrator2", "Distrator3"]
         }
-      }
-      
-      NOTA PARA O FILL_GAP:
+        NOTA PARA O FILL_GAP:
       - O array "options" deve conter 4 strings: a "correct_answer" e 3 distratores incorretos mas plausíveis (do mesmo contexto semântico).
       - Exemplo: Se a resposta for "Mitral", as opções podem ser ["Mitral", "Tricúspide", "Aórtica", "Pulmonar"].
       - Não use sinônimos da resposta certa como distratores.
+      }` : ""}
     `;
 
-    // 3. Chamar a IA (UMA ÚNICA VEZ PARA O BLOCO INTEIRO)
+    // 4. EXECUÇÃO
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
+    // Tratamento de JSON (Limpeza de Markdown se houver)
     let generatedQuestions;
     try {
-      generatedQuestions = JSON.parse(text);
+      generatedQuestions = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
     } catch (e) {
-      // Fallback para limpeza caso o modelo não respeite o mimeType (raro no Flash atual)
-      const cleanText = text.replace(/```json/g, "").replace(/```/g, "").trim();
-      generatedQuestions = JSON.parse(cleanText);
+      console.error("Erro JSON IA:", text);
+      throw new Error("Falha ao parsear resposta da IA");
     }
 
-    // 4. Salvar no Supabase
-    // Adicionamos os campos de controle que a IA não precisa saber (node_id, xp_reward calculado)
-    const questionsToInsert = generatedQuestions.map((q: any) => ({
+    // 5. SALVAMENTO NO SUPABASE
+    const questionsToInsert = generatedQuestions.map((q: any, index: number) => ({
       node_id: nodeId,
       statement: q.statement,
       q_type: q.q_type,
-      difficulty: q.difficulty,
+      // Garante a dificuldade pedida caso a IA se perca
+      difficulty: difficultyRecipe[index] || q.difficulty,
       content: q.content,
       commentary: q.commentary,
-      // Lógica de XP baseada na dificuldade (Regra de Negócio)
-      xp_reward: q.difficulty === 'hard' ? 15 : q.difficulty === 'medium' ? 10 : 5
+      // XP: Boss e Kahoot podem ter multiplicadores diferentes no futuro
+      xp_reward: (difficultyRecipe[index] || q.difficulty) === 'hard' ? 20 : 10
     }));
 
     const { data, error } = await supabase
@@ -136,15 +168,12 @@ export async function POST(req: Request) {
       .insert(questionsToInsert)
       .select();
 
-    if (error) {
-      console.error("Erro Supabase:", error);
-      throw error;
-    }
+    if (error) throw error;
 
-    return NextResponse.json({ success: true, count: data.length, data });
+    return NextResponse.json({ success: true, count: data.length, mode: mode, data });
 
   } catch (error: any) {
-    console.error("Erro na Geração:", error);
+    console.error("Erro Route Maestro:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

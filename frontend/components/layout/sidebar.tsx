@@ -2,14 +2,14 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { 
-  Home, 
-  Swords, 
-  Map,    
-  BarChart2, 
-  User, 
+import {
+  Home,
+  Swords,
+  Map,
+  BarChart2,
+  User,
   Sparkles,
-  UploadCloud 
+  UploadCloud
 } from "lucide-react"
 
 import {
@@ -22,7 +22,11 @@ import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { StreakCounter } from "@/components/streak-counter" // <--- Importado
 
-export function Sidebar() {
+interface SidebarProps {
+  streak?: number
+}
+
+export function Sidebar({ streak }: SidebarProps) {
   const pathname = usePathname()
 
   const navItems = [
@@ -36,7 +40,7 @@ export function Sidebar() {
 
   return (
     <aside className="hidden md:flex flex-col items-center w-[72px] h-screen py-4 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50">
-      
+
       {/* LOGO */}
       <div className="mb-6">
         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/30 text-xl">
@@ -52,7 +56,7 @@ export function Sidebar() {
           <TooltipProvider delayDuration={0}>
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-              
+
               return (
                 <Tooltip key={item.href}>
                   <TooltipTrigger asChild>
@@ -62,8 +66,8 @@ export function Sidebar() {
                         relative group flex items-center justify-center w-12 h-12 rounded-[24px] 
                         transition-all duration-300 ease-out
                         hover:rounded-[16px] hover:bg-indigo-600 hover:text-white
-                        ${isActive 
-                          ? "bg-indigo-600 text-white rounded-[16px]" 
+                        ${isActive
+                          ? "bg-indigo-600 text-white rounded-[16px]"
                           : "bg-white dark:bg-slate-800 text-slate-500 hover:text-white"
                         }
                         ${!isActive && item.color ? item.color : ""}
@@ -91,14 +95,14 @@ export function Sidebar() {
 
       {/* RODAPÉ (STREAK + PERFIL) */}
       <div className="flex flex-col gap-4 items-center pb-4">
-        
+
         {/* FOGUINHO AQUI */}
         <div className="scale-90">
-            <StreakCounter />
+          <StreakCounter currentStreak={streak || 0} />
         </div>
 
         <TooltipProvider>
-           <Tooltip>
+          <Tooltip>
             <TooltipTrigger asChild>
               <Link href="/perfil" className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center hover:bg-slate-300 transition-colors">
                 <User size={20} className="text-slate-600 dark:text-slate-400" />

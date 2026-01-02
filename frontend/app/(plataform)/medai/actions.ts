@@ -73,14 +73,21 @@ export async function getRemainingDailyUses() {
   if (!user) return 0
 
   const today = new Date().toISOString().split('T')[0]
-  const { data: usageData } = await supabase
-    .from('daily_ai_usage')
-    .select('request_count')
-    .eq('user_id', user.id)
-    .eq('usage_date', today)
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('ai_usage_count, ai_usage_date')
+    .eq('id', user.id)
     .single()
 
-  return Math.max(0, DAILY_LIMIT - (usageData?.request_count || 0))
+  if (!profile) return 0
+
+  // Se a data do último uso não for hoje, o contador é considerado 0
+  if (profile.ai_usage_date !== today) {
+    return DAILY_LIMIT
+  }
+
+  return Math.max(0, DAILY_LIMIT - (profile.ai_usage_count || 0))
 }
 
 // --- LÓGICA DO CHAT (OTIMIZADA) ---
@@ -90,16 +97,24 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: "Login necessário." }
 
-  // 1. Verificar Limite
+  // 1. Verificar Limite na tabela PROFILES
   const today = new Date().toISOString().split('T')[0]
-  const { data: usageData } = await supabase
-    .from('daily_ai_usage')
-    .select('request_count')
-    .eq('user_id', user.id)
-    .eq('usage_date', today)
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('ai_usage_count, ai_usage_date')
+    .eq('id', user.id)
     .single()
 
-  const currentCount = usageData?.request_count || 0
+  let currentCount = 0
+
+  // Verifica se precisa resetar (Data nula ou diferente de hoje)
+  if (profile && profile.ai_usage_date === today) {
+    currentCount = profile.ai_usage_count || 0
+  } else {
+    currentCount = 0 // Reseta localmente se for outro dia
+  }
+
   if (currentCount >= DAILY_LIMIT) {
     return { success: false, limitReached: true, message: "Limite diário atingido." }
   }
@@ -122,41 +137,41 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
       .order('created_at', { ascending: true })
       // Removemos o limite de 20 para o contexto não quebrar em conversas longas,
       // ou aumentamos para garantir contexto suficiente. O Flash aguenta muito token.
-      .limit(50) 
+      .limit(50)
 
     // --- PREPARAÇÃO DAS TAREFAS PARALELAS ---
-    
+
     // Tarefa A: Gerar o Título (Se necessário)
     const titlePromise = (async () => {
-        const { data: currentSession } = await supabase.from('medai_sessions').select('title').eq('id', sessionId).single()
-        
-        // Só gera se for "Nova Conversa" ou tivermos muito poucas mensagens (início do papo)
-        if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 2)) {
-            try {
-                // CORRIGIDO: Nome do modelo
-                const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
-                const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
-                const titleResult = await titleModel.generateContent(titlePrompt)
-                const generatedTitle = titleResult.response.text()
-                
-                if (generatedTitle) {
-                    await supabase.from('medai_sessions').update({ title: generatedTitle }).eq('id', sessionId)
-                    return generatedTitle
-                }
-            } catch (err) {
-                console.error("Erro título:", err)
-            }
+      const { data: currentSession } = await supabase.from('medai_sessions').select('title').eq('id', sessionId).single()
+
+      // Só gera se for "Nova Conversa" ou tivermos muito poucas mensagens (início do papo)
+      if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 2)) {
+        try {
+          // CORRIGIDO: Nome do modelo
+          const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
+          const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
+          const titleResult = await titleModel.generateContent(titlePrompt)
+          const generatedTitle = titleResult.response.text()
+
+          if (generatedTitle) {
+            await supabase.from('medai_sessions').update({ title: generatedTitle }).eq('id', sessionId)
+            return generatedTitle
+          }
+        } catch (err) {
+          console.error("Erro título:", err)
         }
-        return null
+      }
+      return null
     })()
 
     // Tarefa B: Gerar a Resposta Principal
     const chatPromise = (async () => {
-        // CORRIGIDO: Nome do modelo para 1.5-flash
-        // System Prompt movido para systemInstruction (Mais robusto)
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-3-flash-preview",
-            systemInstruction: `
+      // CORRIGIDO: Nome do modelo para 1.5-flash
+      // System Prompt movido para systemInstruction (Mais robusto)
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.0-flash", // Atualizado para modelo mais recente se disponível, ou fallback seguro
+        systemInstruction: `
               Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
       
               SEU OBJETIVO:
@@ -169,17 +184,17 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
               4. Nunca forneça aconselhamento médico real ou diagnóstico. Mantenha a ética e a privacidade do paciente em mente.
               4. Se a pergunta não for médica, ou se for um caso clínico, ou da área da saúde, recuse educadamente.
             `
-        })
+      })
 
-        const chat = model.startChat({
-            history: historyData?.map((msg: any) => ({
-                role: msg.role === 'user' ? 'user' : 'model',
-                parts: [{ text: msg.content }],
-            })) || [],
-        })
+      const chat = model.startChat({
+        history: historyData?.map((msg: any) => ({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.content }],
+        })) || [],
+      })
 
-        const result = await chat.sendMessage(message)
-        return result.response.text()
+      const result = await chat.sendMessage(message)
+      return result.response.text()
     })()
 
     // 4. Executa Título e Chat AO MESMO TEMPO
@@ -192,22 +207,22 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
       content: responseText
     })
 
-    // 6. Atualizar timestamp e contador
+    // 6. Atualizar timestamp da sessão
     await supabase.from('medai_sessions')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', sessionId)
 
-    await supabase.from('daily_ai_usage').upsert({
-      user_id: user.id,
-      usage_date: today,
-      request_count: currentCount + 1
-    })
+    // 7. ATUALIZAR CONTADOR NO PROFILES (Consolidado)
+    await supabase.from('profiles').update({
+      ai_usage_date: today,
+      ai_usage_count: currentCount + 1
+    }).eq('id', user.id)
 
-    return { 
-        success: true, 
-        message: responseText, 
-        usesLeft: DAILY_LIMIT - (currentCount + 1),
-        newTitle: newTitle 
+    return {
+      success: true,
+      message: responseText,
+      usesLeft: DAILY_LIMIT - (currentCount + 1),
+      newTitle: newTitle
     }
 
   } catch (error) {
