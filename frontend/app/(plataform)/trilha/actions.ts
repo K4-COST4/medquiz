@@ -51,7 +51,7 @@ export async function getTrackDescription(nodeId: string) {
   try {
     const genAI = getGenAI();
     // Usando modelo 1.5-flash para garantir estabilidade (ou mantenha o 3.0 se sua chave permitir)
-    const model = genAI.getGenerativeModel({ model: "gemini-3-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
    const prompt = `
       Atue como um Professor Titular de Medicina realizando uma aula de revisão teórica aprofundada.

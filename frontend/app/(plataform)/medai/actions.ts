@@ -155,7 +155,7 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
         // CORRIGIDO: Nome do modelo para 1.5-flash
         // System Prompt movido para systemInstruction (Mais robusto)
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-3-flash",
+            model: "gemini-3-flash-preview",
             systemInstruction: `
               Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
       
