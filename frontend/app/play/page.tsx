@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { joinRoom } from "../(plataform)/live/actions";
+import { joinRoom } from "@/app/(plataform)/live/actions";
 
 export default function PlayerJoinPage() {
     const router = useRouter();
