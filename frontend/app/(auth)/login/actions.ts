@@ -7,10 +7,11 @@ import { headers } from 'next/headers'
 
 export async function loginWithGoogle() {
   const supabase = await createClient()
-  
+
   // Tenta pegar a origem da requisição. 
-  // Em produção, isso garante que seja https://seu-site.vercel.app
-  const origin = (await headers()).get('origin') || 'https://medquiz-kappa.vercel.app'
+  // Em produção, isso garante que seja a URL correta. 
+  // Em localhost, garantimos o fallback seguro.
+  const origin = (await headers()).get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -35,7 +36,7 @@ export async function loginWithGoogle() {
 
 export async function loginWithEmail(formData: FormData) {
   const supabase = await createClient()
-  
+
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
@@ -57,13 +58,13 @@ export async function loginWithEmail(formData: FormData) {
 
 export async function signup(formData: FormData) {
   const supabase = await createClient()
-  
+
   const email = formData.get('email') as string
   const password = formData.get('password') as string
-  
+
   // Nota: Seu formulário atual na page.tsx parece não ter campo 'fullName', 
   // mas mantive a lógica caso você adicione depois.
-  const fullName = formData.get('fullName') as string 
+  const fullName = formData.get('fullName') as string
 
   const { error } = await supabase.auth.signUp({
     email,

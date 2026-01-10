@@ -3,7 +3,7 @@
 import { createClient } from "@/utils/supabase/server"; // O @ garante que o import funcione em qualquer pasta
 import { revalidatePath } from "next/cache";
 
-const REGEN_TIME_HOURS = 4; // Tempo em horas para ganhar 1 vida
+const REGEN_TIME_HOURS = 0.5; // Tempo em horas para ganhar 1 vida (30 min)
 
 /**
  * Verifica se já passou tempo suficiente para recuperar vidas automaticamente.
@@ -45,7 +45,7 @@ export async function checkAndRegenerateHearts() {
             }).eq('id', user.id);
 
             // Revalida para o usuário ver a mudança
-            revalidatePath('/', 'layout');
+            // revalidatePath('/', 'layout');
             return newHearts;
         }
     }

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence, useAnimation } from 'framer-motion'
 import { Heart, Zap, Clock } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 
 interface HeartsWidgetProps {
     hearts: number
@@ -17,6 +18,10 @@ export default function HeartsWidget({
     triggerShake = false,
     onStartPractice
 }: HeartsWidgetProps) {
+    const pathname = usePathname()
+    // A barra só deve aparecer se a rota começar com "/trilha" (cobre /trilhas e /trilha/id)
+    const isTrilhaSection = pathname?.startsWith('/trilha')
+
     const controls = useAnimation()
     // Estado local para garantir feedback visual imediato se necessário, 
     // embora o ideal seja via props. O triggerShake ajuda a sincronizar.
@@ -31,6 +36,8 @@ export default function HeartsWidget({
             })
         }
     }, [triggerShake, controls])
+
+    if (!isTrilhaSection) return null;
 
     return (
         <>

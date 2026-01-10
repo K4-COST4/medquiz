@@ -58,7 +58,7 @@ export default async function TrackInfoPage({
 
             <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
               <Bot size={12} />
-              <span>AI GENERATED • GEMINI 3.0</span>
+              <span>AI GENERATED</span>
             </div>
           </div>
 

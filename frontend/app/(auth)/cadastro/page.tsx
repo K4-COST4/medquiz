@@ -4,10 +4,11 @@ import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { 
-  Mail, Lock, User, Phone, Hash, ArrowRight, Loader2, Brain, AlertCircle 
+import {
+  Mail, Lock, User, Phone, Hash, ArrowRight, Loader2, Brain, AlertCircle
 } from "lucide-react";
 import Link from "next/link";
+import { registerUser } from "./actions"; // <--- Importando a Server Action
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,7 +60,6 @@ export default function CadastroPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // O PULO DO GATO: Manda para a página de completar cadastro
         redirectTo: `${window.location.origin}/auth/callback?next=/cadastro/completar`,
       },
     });
@@ -68,51 +68,27 @@ export default function CadastroPage() {
       setErrorMsg("Erro ao conectar com Google.");
       setLoading(false);
     }
-    // Se der certo, o Supabase redireciona automaticamente
   }
 
-  // --- CADASTRO POR EMAIL (MANTIDO) ---
+  // --- CADASTRO POR EMAIL (VIA SERVER ACTION) ---
   async function handleEmailCadastro(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setErrorMsg("");
 
-    if (!formData.handle.match(/^[a-zA-Z0-9_]+$/)) {
-      setErrorMsg("O ID deve conter apenas letras, números e underline.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.senha,
-        options: { data: { full_name: formData.nome } }
-      });
+      // Chama a Server Action
+      const result = await registerUser(formData);
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: authData.user.id,
-            nome: formData.nome,
-            handle: formData.handle.toLowerCase(),
-            telefone: formData.telefone,
-            email: formData.email,
-            xp: 0,
-            streak: 0
-          });
-
-        if (profileError) {
-          if (profileError.code === '23505') throw new Error("Este ID já está em uso.");
-          throw profileError;
-        }
-        router.push("/dashboard"); 
+      if (!result.success) {
+        setErrorMsg(result.error || "Erro desconhecido.");
+      } else {
+        // Redireciona em caso de sucesso
+        router.push(result.redirectUrl || "/dashboard");
       }
-    } catch (error: any) {
-      setErrorMsg(error.message || "Erro ao criar conta.");
+
+    } catch (err) {
+      setErrorMsg("Erro de conexão.");
     } finally {
       setLoading(false);
     }
@@ -120,24 +96,24 @@ export default function CadastroPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans selection:bg-violet-100 selection:text-violet-900">
-      
-      <motion.div 
+
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white w-full max-w-md p-8 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100"
       >
         <div className="flex justify-center mb-6">
-            <div className="flex items-center gap-2">
-               <div className="bg-violet-600 p-2 rounded-xl shadow-lg shadow-violet-200">
-                 <Brain className="text-white w-6 h-6"/>
-               </div>
-               <span className="text-2xl font-black text-slate-800 tracking-tight">Med<span className="text-violet-600">Quiz</span></span>
+          <div className="flex items-center gap-2">
+            <div className="bg-violet-600 p-2 rounded-xl shadow-lg shadow-violet-200">
+              <Brain className="text-white w-6 h-6" />
             </div>
+            <span className="text-2xl font-black text-slate-800 tracking-tight">Med<span className="text-violet-600">Quiz</span></span>
+          </div>
         </div>
 
         <div className="text-center mb-6">
-            <h1 className="text-2xl font-black text-slate-800">Crie sua conta</h1>
-            <p className="text-slate-400 font-medium text-sm mt-1">Comece sua jornada de residência.</p>
+          <h1 className="text-2xl font-black text-slate-800">Crie sua conta</h1>
+          <p className="text-slate-400 font-medium text-sm mt-1">Comece sua jornada de residência.</p>
         </div>
 
         {errorMsg && (
@@ -163,89 +139,89 @@ export default function CadastroPage() {
         </div>
 
         <form onSubmit={handleEmailCadastro} className="space-y-4">
-            
-            {/* Nome de Exibição (Apelido) */}
-            <div className="relative group">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/>
-                <input 
-                  type="text" 
-                  name="nome"
-                  required
-                  placeholder="Nome de Exibição / Apelido"
-                  value={formData.nome}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
-                />
-            </div>
 
-            <div className="relative group">
-                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/>
-                <input 
-                  type="text" 
-                  name="handle"
-                  required
-                  placeholder="ID de Usuário (ex: med_joao)"
-                  value={formData.handle}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium lowercase"
-                />
-            </div>
+          {/* Nome de Exibição (Apelido) */}
+          <div className="relative group">
+            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20} />
+            <input
+              type="text"
+              name="nome"
+              required
+              placeholder="Nome de Exibição / Apelido"
+              value={formData.nome}
+              onChange={handleChange}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
+            />
+          </div>
 
-            <div className="relative group">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/>
-                <input 
-                  type="tel" 
-                  name="telefone"
-                  required
-                  placeholder="WhatsApp / Celular"
-                  value={formData.telefone}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
-                />
-            </div>
+          <div className="relative group">
+            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20} />
+            <input
+              type="text"
+              name="handle"
+              required
+              placeholder="ID de Usuário (ex: med_joao)"
+              value={formData.handle}
+              onChange={handleChange}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium lowercase"
+            />
+          </div>
 
-            <div className="relative group">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/>
-                <input 
-                  type="email" 
-                  name="email"
-                  required
-                  placeholder="Seu email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
-                />
-            </div>
+          <div className="relative group">
+            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20} />
+            <input
+              type="tel"
+              name="telefone"
+              required
+              placeholder="WhatsApp / Celular"
+              value={formData.telefone}
+              onChange={handleChange}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
+            />
+          </div>
 
-            <div className="relative group">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20}/>
-                <input 
-                  type="password" 
-                  name="senha"
-                  required
-                  placeholder="Senha"
-                  value={formData.senha}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
-                />
-            </div>
+          <div className="relative group">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20} />
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder="Seu email"
+              value={formData.email}
+              onChange={handleChange}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
+            />
+          </div>
 
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-violet-200 transform active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-4"
-            >
-              {loading ? <Loader2 className="animate-spin" /> : <>Criar Conta <ArrowRight size={20}/></>}
-            </button>
+          <div className="relative group">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-violet-500 transition-colors" size={20} />
+            <input
+              type="password"
+              name="senha"
+              required
+              placeholder="Senha"
+              value={formData.senha}
+              onChange={handleChange}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 font-bold text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 transition-all placeholder:text-slate-400 placeholder:font-medium"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-violet-200 transform active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-4"
+          >
+            {loading ? <Loader2 className="animate-spin" /> : <>Criar Conta <ArrowRight size={20} /></>}
+          </button>
         </form>
 
         <div className="mt-8 text-center">
-            <p className="text-slate-400 font-bold text-sm">
-                Já tem uma conta?{' '}
-                <Link href="/login" className="text-violet-600 hover:text-violet-700 hover:underline">
-                    Fazer Login
-                </Link>
-            </p>
+          <p className="text-slate-400 font-bold text-sm">
+            Já tem uma conta?{' '}
+            <Link href="/login" className="text-violet-600 hover:text-violet-700 hover:underline">
+              Fazer Login
+            </Link>
+          </p>
         </div>
       </motion.div>
     </div>

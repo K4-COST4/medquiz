@@ -1,14 +1,9 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai"
 import { createClient } from "@/utils/supabase/server"
+import { askMedAI, getDailyUsesLeft } from "@/app/actions/medai-core";
+import { getEnhancedContext } from "@/app/actions/medai-rag";
 
-// Instancia dentro da função para garantir que a env var carregue no runtime correto
-const getGenAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("Chave GEMINI_API_KEY não configurada")
-  return new GoogleGenerativeAI(apiKey)
-}
 
 const DAILY_LIMIT = 5
 
@@ -67,96 +62,85 @@ export async function getSessionMessages(sessionId: string) {
   return data || []
 }
 
+// Wrapper para manter compatibilidade com frontend
 export async function getRemainingDailyUses() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return 0
-
-  const today = new Date().toISOString().split('T')[0]
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('ai_usage_count, ai_usage_date')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) return 0
-
-  // Se a data do último uso não for hoje, o contador é considerado 0
-  if (profile.ai_usage_date !== today) {
-    return DAILY_LIMIT
-  }
-
-  return Math.max(0, DAILY_LIMIT - (profile.ai_usage_count || 0))
+  return await getDailyUsesLeft()
 }
 
 // --- LÓGICA DO CHAT (OTIMIZADA) ---
 
-export async function sendMessage({ sessionId, message }: { sessionId: string, message: string }) {
+// --- LÓGICA DO CHAT (OTIMIZADA) ---
+
+export async function sendMessage({ sessionId, message, fileBase64 }: { sessionId: string, message: string, fileBase64?: string }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: "Login necessário." }
 
-  // 1. Verificar Limite na tabela PROFILES
-  const today = new Date().toISOString().split('T')[0]
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('ai_usage_count, ai_usage_date')
-    .eq('id', user.id)
-    .single()
-
-  let currentCount = 0
-
-  // Verifica se precisa resetar (Data nula ou diferente de hoje)
-  if (profile && profile.ai_usage_date === today) {
-    currentCount = profile.ai_usage_count || 0
-  } else {
-    currentCount = 0 // Reseta localmente se for outro dia
-  }
-
-  if (currentCount >= DAILY_LIMIT) {
+  // Check preliminar de cota para evitar processamento desnecessário (RAG/PubMed)
+  const remaining = await getDailyUsesLeft()
+  if (remaining <= 0) {
     return { success: false, limitReached: true, message: "Limite diário atingido." }
   }
 
-  try {
-    const genAI = getGenAI()
+  // Parse Inline Data if present
+  let inlineDataPayload: { data: string, mimeType: string } | undefined = undefined
+  if (fileBase64) {
+    // Extract base64 (remove prefix)
+    const base64Data = fileBase64.split(',')[1] || fileBase64
+    // Determine mimeType (simple heuristic or Regex)
+    let mimeType = 'image/jpeg'
+    if (fileBase64.startsWith('data:')) {
+      mimeType = fileBase64.substring(5, fileBase64.indexOf(';'))
+    } else if (fileBase64.startsWith('JVBER')) {
+      mimeType = 'application/pdf'
+    }
+    inlineDataPayload = { data: base64Data, mimeType }
+  }
 
-    // 2. Salvar mensagem do usuário (Await aqui é importante para manter ordem)
+  try {
+    // 1. Salvar mensagem do usuário (incluindo nota de anexo se houver?)
+    // Opcional: Adicionar " [Anexo]" ao texto salvo no banco? Ou criar coluna?
+    // Por simplicidade, salvamos apenas o texto. O anexo é efêmero para a IA neste momento.
     await supabase.from('medai_messages').insert({
       session_id: sessionId,
       role: 'user',
-      content: message
+      content: message + (fileBase64 ? " 📎 [Arquivo Anexado]" : "")
     })
 
-    // 3. Recuperar histórico
+    // 2. Recuperar histórico
     const { data: historyData } = await supabase
       .from('medai_messages')
       .select('role, content')
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
-      // Removemos o limite de 20 para o contexto não quebrar em conversas longas,
-      // ou aumentamos para garantir contexto suficiente. O Flash aguenta muito token.
       .limit(50)
+
+    const mappedHistory = historyData?.map((msg: any) => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    })) || []
+
 
     // --- PREPARAÇÃO DAS TAREFAS PARALELAS ---
 
     // Tarefa A: Gerar o Título (Se necessário)
+    // Usa askMedAI com skipQuota=true
     const titlePromise = (async () => {
       const { data: currentSession } = await supabase.from('medai_sessions').select('title').eq('id', sessionId).single()
 
-      // Só gera se for "Nova Conversa" ou tivermos muito poucas mensagens (início do papo)
       if (currentSession?.title === 'Nova Conversa' || (historyData && historyData.length <= 2)) {
         try {
-          // CORRIGIDO: Nome do modelo
-          const titleModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
-          const titlePrompt = `Analise a seguinte mensagem inicial de um usuário em um chat médico e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. Retorne APENAS o título, sem aspas. Mensagem: "${message}"`
-          const titleResult = await titleModel.generateContent(titlePrompt)
-          const generatedTitle = titleResult.response.text()
+          const res = await askMedAI({
+            contextKey: 'title_generator',
+            userMessage: `Mensagem: "${message}"`,
+            skipQuota: true, // IMPORTANT: Não gasta cota
+            modelName: "gemini-2.5-flash-lite" // Modelo mais rápido para título
+          })
 
-          if (generatedTitle) {
-            await supabase.from('medai_sessions').update({ title: generatedTitle }).eq('id', sessionId)
-            return generatedTitle
+          if (res.success && res.message) {
+            const title = res.message.replace(/"/g, '').trim()
+            await supabase.from('medai_sessions').update({ title }).eq('id', sessionId)
+            return title
           }
         } catch (err) {
           console.error("Erro título:", err)
@@ -165,40 +149,44 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
       return null
     })()
 
-    // Tarefa B: Gerar a Resposta Principal
+    // Tarefa B: Gerar a Resposta Principal (HÍBRIDA)
     const chatPromise = (async () => {
-      // CORRIGIDO: Nome do modelo para 1.5-flash
-      // System Prompt movido para systemInstruction (Mais robusto)
-      const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash", // Atualizado para modelo mais recente se disponível, ou fallback seguro
-        systemInstruction: `
-              Você é o MedAI, um assistente avançado para estudantes de medicina e médicos.
-      
-              SEU OBJETIVO:
-              Ajudar com dúvidas gerais, etiologias, conceitos, fisiopatologia, diagnóstico, tratamento, farmacologia, resumos de diretrizes e casos clínicos simulados.
-              
-              REGRAS:
-              1. Respostas diretas, técnicas, mas didáticas. Use Markdow para formatar (negrito, listas, tabelas).
-              2. Se for um caso clínico, ajude a raciocinar o diagnóstico diferencial.
-              3. Sempre responda baseado em referências e diretrizes, livros-texto confiávei e artigo cietíficos, e cite a base (ex: "Segundo o Harrison..." ou "Diretrizes da SBC...") quando possível.
-              4. Nunca forneça aconselhamento médico real ou diagnóstico. Mantenha a ética e a privacidade do paciente em mente.
-              4. Se a pergunta não for médica, ou se for um caso clínico, ou da área da saúde, recuse educadamente.
-            `
+      // 1. RAG Unified Service (Substitui lógica manual anterior)
+      const ragContext = await getEnhancedContext(message);
+
+      // 2. Build Final Context (Adiciona contexto de arquivo se houver)
+      const contextArgs = `
+               ${ragContext}
+               
+               ${fileBase64 ? "3. CONTEXTO DO ARQUIVO: O usuário enviou um arquivo em anexo. Use-o como contexto principal se relevante." : ""}
+      `
+
+      // 6. Call MedAI Core (Actual Chat)
+      // Mapped History precisa tipagem correta
+      const historyTyped = mappedHistory as { role: 'user' | 'model', parts: { text: string }[] }[]
+
+      const finalRes = await askMedAI({
+        contextKey: 'medai_tutor',
+        userMessage: message,
+        history: historyTyped,
+        systemInstructionArgs: contextArgs,
+        modelName: "gemini-3-flash-preview", // Use latest flash for better multimodal
+        inlineData: inlineDataPayload // Pass attachment here
+        // skipQuota: false (Default) -> COBRA COTA AQUI
       })
 
-      const chat = model.startChat({
-        history: historyData?.map((msg: any) => ({
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.content }],
-        })) || [],
-      })
-
-      const result = await chat.sendMessage(message)
-      return result.response.text()
+      return finalRes
     })()
 
-    // 4. Executa Título e Chat AO MESMO TEMPO
-    const [newTitle, responseText] = await Promise.all([titlePromise, chatPromise])
+    // 4. Executa Title e Chat
+    const [newTitle, chatResult] = await Promise.all([titlePromise, chatPromise])
+
+    if (!chatResult.success) {
+      if (chatResult.limitReached) return { success: false, limitReached: true, message: "Limite diário atingido." }
+      return { success: false, message: chatResult.error || "Erro desconhecido." }
+    }
+
+    const responseText = chatResult.message
 
     // 5. Salvar resposta da IA
     await supabase.from('medai_messages').insert({
@@ -212,16 +200,12 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
       .update({ updated_at: new Date().toISOString() })
       .eq('id', sessionId)
 
-    // 7. ATUALIZAR CONTADOR NO PROFILES (Consolidado)
-    await supabase.from('profiles').update({
-      ai_usage_date: today,
-      ai_usage_count: currentCount + 1
-    }).eq('id', user.id)
+    // Nota: A cota foi atualizada dentro de askMedAI
 
     return {
       success: true,
       message: responseText,
-      usesLeft: DAILY_LIMIT - (currentCount + 1),
+      usesLeft: chatResult.usesLeft,
       newTitle: newTitle
     }
 
@@ -230,3 +214,4 @@ export async function sendMessage({ sessionId, message }: { sessionId: string, m
     return { success: false, message: "Erro de conexão ou modelo indisponível." }
   }
 }
+

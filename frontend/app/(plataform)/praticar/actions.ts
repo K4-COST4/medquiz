@@ -2,6 +2,8 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
+import { generateQuestionsService } from "@/app/actions/generate-questions-service";
 
 // --- TIPOS ---
 type Difficulty = 'easy' | 'medium' | 'hard';
@@ -17,12 +19,19 @@ export interface Question {
     xp_reward: number;
 }
 
+interface SessionProgress {
+    currentIndex: number;
+    correctCount: number;
+    currentScore: number;
+}
+
 interface SessionData {
     questions: Question[];
     currentLevel: number;
     isBoss: boolean;
     nodeTitle: string;
     parentThemeId?: string | null;
+    progress?: SessionProgress;
 }
 
 // --- RECEITAS DE BOLO (MAESTRO) ---
@@ -37,6 +46,17 @@ const BOSS_RECIPE = { easy: 0, medium: 5, hard: 5 };
 
 /**
  * Função Principal: Prepara a sessão de estudo do aluno (Adaptive Learning)
+ */
+// --- TIPOS DE SESSÃO ---
+interface StudySession {
+    id: string;
+    questions: Question[];
+    status: 'active' | 'completed' | 'abandoned';
+}
+
+/**
+ * Função Principal: Prepara a sessão de estudo do aluno (Adaptive Learning)
+ * COM PERSISTÊNCIA DE SESSÃO
  */
 export async function getStudentSession(nodeId: string): Promise<{ success: boolean; data?: SessionData; error?: string }> {
     const supabase = await createClient();
@@ -59,11 +79,7 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
 
         // Buscar o tema pai (para redirecionamento futuro)
         let parentThemeId = null;
-        // Logica simples de subida na arvore (poderia ser uma RPC recursiva, mas aqui faremos simples)
         if (node.node_type === 'theme') parentThemeId = node.id;
-        // (A busca profunda do tema ancestral idealmente fica no client para não bloquear, 
-        // mas se quiséssemos retornar aqui, faríamos uma query recursiva. 
-        // Por enquanto vamos retornar null e deixar o client lidar ou implementar aqui se for crítico).
 
         // 3. BUSCAR PROGRESSO DO ALUNO
         const { data: progress } = await supabase
@@ -75,6 +91,83 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
 
         const currentLevel = (progress?.current_level || 0) as 0 | 1 | 2 | 3;
 
+        // --- NOVA LÓGICA: VERIFICAR SESSÃO ATIVA ---
+        const { data: activeSession } = await supabase
+            .from('study_sessions')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('node_id', nodeId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (activeSession) {
+            console.log("🔄 Retomando sessão ativa:", activeSession.id);
+            const sessionQuestions = activeSession.questions as Question[];
+
+            // Verificar histórico para restaurar progresso
+            const qIds = sessionQuestions.map(q => q.id);
+
+            // Buscar histórico recente (ou total) dessas questões para este usuário
+            const { data: history } = await supabase
+                .from('user_question_history')
+                .select('question_id, is_correct')
+                .in('question_id', qIds)
+                .eq('user_id', user.id);
+
+            const answeredMap = new Map<string, boolean>();
+            let correctCount = 0;
+            let currentScore = 0;
+
+            if (history) {
+                history.forEach((h: any) => {
+                    if (!answeredMap.has(h.question_id)) {
+                        answeredMap.set(h.question_id, h.is_correct);
+                        if (h.is_correct) {
+                            correctCount++;
+                            // Encontrar XP da questão na sessão
+                            const q = sessionQuestions.find(sq => sq.id === h.question_id);
+                            if (q) currentScore += (q.xp_reward || 10);
+                        }
+                    }
+                });
+            }
+
+            const answeredCount = answeredMap.size;
+
+            // --- AUTO-COMPLETE CHECK ---
+            if (answeredCount >= sessionQuestions.length) {
+                console.log("🏁 Sessão anterior estava 100% concluída. Finalizando e gerando nova...");
+
+                // 1. Marca como completed
+                await supabase
+                    .from('study_sessions')
+                    .update({ status: 'completed', finished_at: new Date().toISOString() })
+                    .eq('id', activeSession.id);
+
+                // 2. Continua o fluxo para criar uma nova (NÃO RETORNA)
+            } else {
+                // Sessão ainda ativa e incompleta, retorna ela
+                return {
+                    success: true,
+                    data: {
+                        questions: sessionQuestions,
+                        currentLevel,
+                        isBoss,
+                        nodeTitle: node.title,
+                        parentThemeId,
+                        progress: {
+                            currentIndex: answeredCount,
+                            correctCount: correctCount,
+                            currentScore: currentScore
+                        }
+                    }
+                };
+            }
+        }
+
+        // --- FIM VERIFICAÇÃO SESSÃO ATIVA ---
+
+
         // 4. DEFINIR A "RECEITA" (O que precisamos?)
         let recipe: { easy: number, medium: number, hard: number };
 
@@ -84,39 +177,30 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
             recipe = MASTERY_RULES[currentLevel] || MASTERY_RULES[0];
         }
 
-        // Transformar a receita em array lista de desejos
-        // Ex: ['easy', 'easy', 'medium'...]
         const wishList: Difficulty[] = [];
         Object.entries(recipe).forEach(([diff, count]) => {
             for (let i = 0; i < count; i++) wishList.push(diff as Difficulty);
         });
 
         // 5. CONSULTAR ESTOQUE (RPC)
-        // Busca questões que o aluno AINDA NÃO DOMINOU (ou aleatórias se já dominou tudo)
         const { data: dbQuestions, error: rpcError } = await supabase
             .rpc('get_adaptive_session', { p_node_id: nodeId });
 
         if (rpcError) throw new Error(`Erro RPC: ${rpcError.message}`);
 
-        // Tipar o retorno do banco
         let availableQuestions = (dbQuestions || []) as Question[];
 
         // 6. CALCULAR O GAP (O que tem vs O que preciso)
         const finalSessionQuestions: Question[] = [];
         const neededDifficulties: Difficulty[] = [];
 
-        // Algoritmo de Preenchimento:
-        // Para cada item da WishList, tenta achar um correspondente no Estoque
         for (const diff of wishList) {
             const foundIndex = availableQuestions.findIndex(q => q.difficulty === diff);
 
             if (foundIndex !== -1) {
-                // Tem no estoque!
                 finalSessionQuestions.push(availableQuestions[foundIndex]);
-                // Remove do estoque para não repetir
                 availableQuestions.splice(foundIndex, 1);
             } else {
-                // Não tem! Adiciona à lista de compras da IA
                 neededDifficulties.push(diff);
             }
         }
@@ -125,57 +209,43 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
         if (neededDifficulties.length > 0) {
             console.log(`🤖 Maestro: Preciso gerar ${neededDifficulties.length} questões (${neededDifficulties.join(', ')})`);
 
-            // Importante: Fetch para a rota de API local. 
-            // Em Server Actions, precisamos da URL absoluta ou relativa se configurado corretamente.
-            // Usar `process.env.NEXT_PUBLIC_APP_URL` ou assumir funcionamento local
-
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'; // Fallback dev
-
             try {
-                const response = await fetch(`${appUrl}/api/generate-questions`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        // Repassar cookies de sessão se necessário? Geralmente a API Route usa Service Role se for interna, 
-                        // mas nossa rota API checa sessão? Vamos checar.
-                        // A rota api/generate-questions usa createClient service role internamente?
-                        // Verifiquei o código anterior: usa process.env.SUPABASE_SERVICE_ROLE_KEY!
-                        // Então não precisa de auth user context.
-                    },
-                    body: JSON.stringify({
-                        nodeId: nodeId,
-                        topic: node.title,
-                        aiContext: node.ai_context,
-                        mode: isBoss ? 'boss' : 'standard', // 'kahoot' não se aplica aqui por enquanto
-                        neededDifficulties: neededDifficulties
-                    }),
-                    cache: 'no-store' // Jamais cachear isso
+                // REDUNDÂNCIA: Chamada Direta ao Service (Evita problemas de fetch local)
+                const result = await generateQuestionsService({
+                    nodeId: nodeId,
+                    topic: node.title,
+                    aiContext: node.ai_context,
+                    mode: isBoss ? 'boss' : 'standard',
+                    neededDifficulties: neededDifficulties,
+                    userId: user.id
                 });
 
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.success && Array.isArray(result.data)) {
-                        // Adiciona as novas questões à sessão
-                        const newQuestions = result.data as Question[];
-                        finalSessionQuestions.push(...newQuestions);
-                    }
-                } else {
-                    console.error("Maestro API error:", response.status);
+                if (result.success && Array.isArray(result.data)) {
+                    const newQuestions = result.data as Question[];
+                    finalSessionQuestions.push(...newQuestions);
+                    console.log(`✅ Maestro gerou ${newQuestions.length} novas questões.`);
                 }
+
             } catch (generatedError) {
-                console.error("Maestro fetch error:", generatedError);
-                // Falha silenciosa: O aluno jogará com o que tem (melhor que travar)
+                console.error("Maestro Direct Call error:", generatedError);
             }
         }
 
         // 8. FINALIZAÇÃO
-        // Se, mesmo após a IA, a lista estiver vazia (erro total), lançamos erro
         if (finalSessionQuestions.length === 0) {
             return { success: false, error: "Não há questões disponíveis no momento." };
         }
 
-        // Embaralha para não ficar Ease, Easy, Medium... ordenado
         const shuffled = finalSessionQuestions.sort(() => Math.random() - 0.5);
+
+        // --- SALVAR NOVA SESSÃO ---
+        await supabase.from('study_sessions').insert({
+            user_id: user.id,
+            node_id: nodeId,
+            questions: shuffled,
+            status: 'active'
+        });
+        // --------------------------
 
         return {
             success: true,
@@ -191,5 +261,32 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
     } catch (err: any) {
         console.error("Critical Error in getStudentSession:", err);
         return { success: false, error: err.message || "Erro interno ao iniciar sessão." };
+    }
+}
+
+/**
+ * Server Action: Salva a resposta do aluno e revalida o cache
+ */
+export async function saveQuestionHistory(nodeId: string, questionId: string, isCorrect: boolean) {
+    const supabase = await createClient();
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: "Usuário não logado" };
+
+        const { error } = await supabase.from('user_question_history').insert({
+            user_id: user.id,
+            question_id: questionId,
+            is_correct: isCorrect,
+            answered_at: new Date().toISOString()
+        });
+
+        if (error) throw error;
+
+        revalidatePath(`/praticar/${nodeId}`);
+
+        return { success: true };
+    } catch (e: any) {
+        console.error("Erro ao salvar histórico (Server Action):", e);
+        return { success: false, error: e.message };
     }
 }

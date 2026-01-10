@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server"; // Cliente normal (para ler sessão se precisar)
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js"; // Cliente Admin direto
 import { unstable_noStore as noStore } from "next/cache";
+import { getEnhancedContext } from "@/app/actions/medai-rag";
 
 const getGenAI = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -12,7 +13,7 @@ const getGenAI = () => {
 };
 
 export async function getTrackDescription(nodeId: string) {
-  noStore(); 
+  noStore();
 
   // 1. Instancia o Supabase ADMIN (Poder Absoluto)
   // Isso ignora as regras de RLS que estão bloqueando o salvamento
@@ -32,10 +33,10 @@ export async function getTrackDescription(nodeId: string) {
 
   // CACHE: Se já existe, retorna.
   if (node.ai_description) {
-    return { 
-      title: node.title, 
-      description: node.ai_description, 
-      source: 'database' 
+    return {
+      title: node.title,
+      description: node.ai_description,
+      source: 'database'
     };
   }
 
@@ -50,16 +51,32 @@ export async function getTrackDescription(nodeId: string) {
 
   try {
     const genAI = getGenAI();
+    // 5. RAG CONTEXT (Hybrid Priority Strategy)
+    const ragContext = await getEnhancedContext(node.title);
+
     // Usando modelo 1.5-flash para garantir estabilidade (ou mantenha o 3.0 se sua chave permitir)
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
-   const prompt = `
+    const prompt = `
       Atue como um Professor Titular de Medicina realizando uma aula de revisão teórica aprofundada.
       
       CONTEXTO DE ESTUDO:
       Módulo Central: "${node.title}"
       Roteiro de Aulas (Ilhas): 
       ${islandsList}
+
+      === FONTES DE CONTEXTO (RAG) ===
+      ${ragContext}
+
+      === PROTOCOLO DE CRIAÇÃO (Siga a Ordem de Prioridade) ===
+      1. PRIORIDADE MÁXIMA (A Verdade): 
+         - Verifique se há informações no bloco "FONTES DE CONTEXTO" acima.
+         - Se houver dados contraditórios entre seu conhecimento e o contexto, O CONTEXTO VENCE.
+         - Use esses dados para garantir a exatidão técnica (valores de referência, doses, classificações).
+
+      2. COMPLETUDE (O Professor):
+         - Onde o contexto for omisso ou incompleto, USE SEU VASTO CONHECIMENTO para explicar, dar exemplos e conectar os pontos.
+         - NÃO deixe o texto raso só porque o contexto foi curto. Ex: Se o contexto só citou que "o exame é Raio-X", use seu conhecimento para explicar O QUE buscar no Raio-X.
 
       OBJETIVO:
       Criar um MATERIAL DE ESTUDO completo e técnico que explique os conceitos fundamentais dessas aulas. O texto deve servir como uma fonte de aprendizado real, não apenas um guia de navegação.
@@ -101,10 +118,10 @@ export async function getTrackDescription(nodeId: string) {
       console.log("✅ Salvo com sucesso via Admin!");
     }
 
-    return { 
-      title: node.title, 
-      description: aiText, 
-      source: 'ai_generated' 
+    return {
+      title: node.title,
+      description: aiText,
+      source: 'ai_generated'
     };
 
   } catch (error) {
