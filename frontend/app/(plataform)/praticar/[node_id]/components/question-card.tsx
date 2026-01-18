@@ -121,10 +121,12 @@ export const QuestionCard = ({
                                 <button onClick={onRevealAnswer} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-violet-200 hover:scale-105 transition-transform">Revelar Resposta</button>
                             </div>
                         ) : (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-3xl border-2 border-emerald-100 shadow-xl shadow-emerald-50">
-                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-2">Resposta Correta</h3>
-                                <p className="text-lg font-medium text-slate-800 mb-6"><FormattedText text={question.content.answer} /></p>
-                                <div className="grid grid-cols-3 gap-3">
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-3xl border-2 border-emerald-100 shadow-xl shadow-emerald-50 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-2 sticky top-0 bg-white pb-2 z-10">Resposta Correta</h3>
+                                <div className="text-lg font-medium text-slate-800 mb-6">
+                                    <FormattedText text={question.content.answer} />
+                                </div>
+                                <div className="grid grid-cols-3 gap-3 sticky bottom-0 bg-white pt-2 z-10 border-t border-slate-50">
                                     <button onClick={() => onSelfEvaluate('hard')} className="p-3 bg-rose-100 text-rose-700 font-bold rounded-xl text-sm hover:bg-rose-200">Errei</button>
                                     <button onClick={() => onSelfEvaluate('medium')} className="p-3 bg-amber-100 text-amber-700 font-bold rounded-xl text-sm hover:bg-amber-200">Difícil</button>
                                     <button onClick={() => onSelfEvaluate('easy')} className="p-3 bg-emerald-100 text-emerald-700 font-bold rounded-xl text-sm hover:bg-emerald-200">Fácil</button>

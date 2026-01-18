@@ -155,7 +155,7 @@ export default function QuizPage({
 
       {/* 4. Bottom Action Bar (Verify Button) */}
       {!isAnswered && !showFlashcardAnswer && (
-        <div className="fixed bottom-0 left-0 w-full p-4 border-t border-slate-100 bg-white z-20">
+        <div className="fixed bottom-16 md:bottom-0 left-0 w-full p-4 border-t border-slate-100 bg-white z-30">
           <div className="max-w-2xl mx-auto">
             <button
               onClick={handleCheckAnswer}
