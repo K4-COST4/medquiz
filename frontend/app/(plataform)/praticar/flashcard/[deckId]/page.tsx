@@ -80,6 +80,7 @@ import {
 } from "@/app/actions/flashcards"
 import { generateFlashcardsAI, type GeneratedCard } from "@/app/actions/generate-cards"
 import { createSession, sendMessage } from "@/app/(plataform)/medai/actions"
+import { FlashcardRating } from "@/components/flashcards/flashcard-rating" // Import Rating Component
 
 export default function StudyPage() {
     const params = useParams()
@@ -94,8 +95,7 @@ export default function StudyPage() {
 
     // AI Gen State
     const [isAiModalOpen, setIsAiModalOpen] = useState(false)
-    const [aiTopic, setAiTopic] = useState("")
-    const [aiDetails, setAiDetails] = useState("")
+
     const [aiReferences, setAiReferences] = useState("")
     const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard' | 'mixed'>('medium')
     const [aiAmount, setAiAmount] = useState([10])
@@ -238,18 +238,16 @@ export default function StudyPage() {
 
     // --- AI GENERATION ---
     const handleGenerate = async () => {
-        const topicFinal = aiTopic || fileName // Usa nome do arquivo se tópico vazio
-        if (!topicFinal) return toast.error("Digite um tópico ou envie um arquivo")
-
         setIsGenerating(true)
         try {
             const res = await generateFlashcardsAI({
-                topic: topicFinal,
-                details: aiDetails,
+                topic: deck?.title || "Geral",
+                details: `${deck?.description || ""} \nObjetivo: ${deck?.study_objective || ""}`,
                 references: aiReferences,
                 difficulty: aiDifficulty,
                 amount: aiAmount[0],
-                fileBase64: fileBase64 || undefined
+                fileBase64: fileBase64 || undefined,
+                deckId: deckId
             })
 
             if (res.success && res.cards) {
@@ -281,7 +279,7 @@ export default function StudyPage() {
                 toast.success(`${res.count} cards adicionados!`)
                 setIsAiModalOpen(false)
                 setStep('config')
-                setAiTopic("")
+
                 setGeneratedCards([])
                 // Recarregar deck
                 const updated = await getDeckWithCards(deckId)
@@ -482,50 +480,75 @@ export default function StudyPage() {
 
                             {step === 'config' ? (
                                 <div className="space-y-4 py-4">
-                                    {/* ARQUIVO PDF */}
-                                    <div className="space-y-2 p-3 border rounded-md bg-slate-50 dark:bg-slate-900/50">
-                                        <Label className="flex items-center gap-2">
-                                            <span>📂 PDF de Referência (Opcional)</span>
-                                            {fileName && <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">{fileName}</Badge>}
-                                        </Label>
-                                        <Input
-                                            type="file"
-                                            accept=".pdf"
-                                            onChange={handleFileChange}
-                                            className="text-sm cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-900/30"
-                                        />
-                                        <p className="text-[10px] text-slate-400">Máx: 10MB. O conteúdo do PDF será usado como base prioritária.</p>
+                                    {/* CONTEXTO ATIVO (Visual Only) */}
+                                    <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+                                        <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
+                                            <Brain size={14} /> Contexto de Estudo
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{deck?.title}</p>
+                                            <p className="text-xs text-slate-500 line-clamp-2">{deck?.study_objective || deck?.description || "Sem objetivos definidos."}</p>
+                                        </div>
+
+                                        {/* FILE STATUS INDICATOR */}
+                                        <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/50">
+                                            {deck?.temp_file_path ? (
+                                                (() => {
+                                                    const uploadDate = deck.file_uploaded_at ? new Date(deck.file_uploaded_at) : new Date(0);
+                                                    const diffDays = (new Date().getTime() - uploadDate.getTime()) / (1000 * 3600 * 24);
+                                                    const isExpired = diffDays > 7;
+
+                                                    return isExpired ? (
+                                                        <div className="flex items-center justify-between text-xs text-amber-600 bg-amber-50 p-2 rounded-md">
+                                                            <span>⚠️ Arquivo expirado. Anexe um novo.</span>
+                                                            <div className="relative">
+                                                                <Input
+                                                                    type="file"
+                                                                    accept=".pdf"
+                                                                    className="absolute inset-0 opacity-0 w-full cursor-pointer"
+                                                                    onChange={handleFileChange}
+                                                                />
+                                                                <Button variant="outline" size="sm" className="h-6 text-[10px]">Reenviar</Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 p-2 rounded-md">
+                                                            <Check size={12} />
+                                                            <span>Arquivo ativo: {deck.original_filename}</span>
+                                                        </div>
+                                                    );
+                                                })()
+                                            ) : (
+                                                <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-100 p-2 rounded-md">
+                                                    <span>Nenhum arquivo de base.</span>
+                                                    <div className="relative">
+                                                        <Input
+                                                            type="file"
+                                                            accept=".pdf"
+                                                            className="absolute inset-0 opacity-0 w-full cursor-pointer"
+                                                            onChange={handleFileChange}
+                                                        />
+                                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] hover:bg-white">Adicionar</Button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* TÓPICO */}
-                                    <div className="space-y-2">
-                                        <Label>Tópico Central</Label>
-                                        <Input
-                                            placeholder="Ex: Insuficiência Cardíaca (Opcional se enviar PDF)..."
-                                            value={aiTopic}
-                                            onChange={(e) => setAiTopic(e.target.value)}
-                                        />
-                                    </div>
 
-                                    {/* DETALHAMENTO */}
-                                    <div className="space-y-2">
-                                        <Label>Detalhamento / Foco</Label>
-                                        <Textarea
-                                            placeholder="Ex: Foque na fisiopatologia e tratamento. Ignore epidemiologia."
-                                            value={aiDetails}
-                                            onChange={(e) => setAiDetails(e.target.value)}
-                                            className="h-20"
-                                        />
-                                    </div>
 
-                                    {/* REFERÊNCIAS */}
+                                    {/* PREFERÊNCIAS (Style) */}
                                     <div className="space-y-2">
-                                        <Label>Referências / Estilo</Label>
+                                        <Label>Estilo das Perguntas (Opcional)</Label>
                                         <Input
-                                            placeholder="Ex: Baseado no Harrison e diretrizes da SBC"
+                                            placeholder="Ex: Focar em casos clínicos, estilo prova de residência..."
                                             value={aiReferences}
                                             onChange={(e) => setAiReferences(e.target.value)}
+                                            className="bg-white"
                                         />
+                                        <p className="text-[10px] text-slate-400">
+                                            Deixe vazio para usar o padrão da IA.
+                                        </p>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
@@ -655,9 +678,16 @@ export default function StudyPage() {
                                             style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden' }}
                                         >
                                             <span className="text-xs uppercase tracking-widest text-indigo-500 font-bold mb-4">Resposta</span>
-                                            <p className="text-lg md:text-xl text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                                                {cards[activeIndex].back}
-                                            </p>
+                                            <div className="text-lg md:text-xl text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                                                <Markdown>{cards[activeIndex].back}</Markdown>
+                                            </div>
+
+                                            {/* RATING WIDGET */}
+                                            <FlashcardRating
+                                                cardId={cards[activeIndex].id}
+                                                initialLikes={cards[activeIndex].likes_count || 0}
+                                                initialDislikes={cards[activeIndex].dislikes_count || 0}
+                                            />
 
                                             {/* TUTOR BUTTON */}
                                             <div className="mt-auto pt-4 border-t w-full flex justify-center">
@@ -681,9 +711,9 @@ export default function StudyPage() {
                                             style={{ backfaceVisibility: 'hidden', transform: 'rotateY(0deg)' }}
                                         >
                                             <span className="text-xs uppercase tracking-widest text-slate-400 font-bold mb-4">Pergunta</span>
-                                            <h3 className="text-2xl md:text-3xl font-medium text-slate-800 dark:text-slate-100">
-                                                {cards[activeIndex].front}
-                                            </h3>
+                                            <div className="text-2xl md:text-3xl font-medium text-slate-800 dark:text-slate-100">
+                                                <Markdown>{cards[activeIndex].front}</Markdown>
+                                            </div>
                                             <p className="text-xs text-slate-400 mt-auto flex items-center gap-2">
                                                 <RotateCw size={12} /> Clique ou [Espaço] para virar
                                             </p>

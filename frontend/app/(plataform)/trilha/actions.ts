@@ -25,7 +25,7 @@ export async function getTrackDescription(nodeId: string) {
   // 2. Busca dados iniciais (Pode usar o admin também para garantir que acha)
   const { data: node } = await supabaseAdmin
     .from('study_nodes')
-    .select('title, ai_description, node_type')
+    .select('id, title, ai_description, ai_context, node_type')
     .eq('id', nodeId)
     .single();
 
@@ -36,96 +36,77 @@ export async function getTrackDescription(nodeId: string) {
     return {
       title: node.title,
       description: node.ai_description,
+      ai_context: node.ai_context,
       source: 'database'
     };
   }
 
-  // 3. Se não existe, busca os filhos
-  const { data: children } = await supabaseAdmin
-    .from('study_nodes')
-    .select('title, node_type')
-    .eq('parent_id', nodeId)
-    .order('order_index', { ascending: true });
+  // 3. LOGICA DE CONTEXTO RECURSIVO (TRACK/MODULE) 🧬
+  let compiledContext = node.ai_context;
+  let sourceType = node.node_type;
 
-  const islandsList = children?.map((c, index) => `${index + 1}. ${c.title}`).join("\n") || "Conteúdo prático";
+  if (node.node_type === 'custom_track' || node.node_type === 'module') {
+    let lessons: any[] = [];
+    let modulesMap: Record<string, string> = {};
 
-  try {
-    const genAI = getGenAI();
-    // 5. RAG CONTEXT (Hybrid Priority Strategy)
-    const ragContext = await getEnhancedContext(node.title);
+    if (node.node_type === 'custom_track') {
+      // TRILHA: Busca Módulos -> Aulas
+      const { data: modules } = await supabaseAdmin
+        .from('study_nodes')
+        .select('id, title')
+        .eq('parent_id', nodeId)
+        .eq('node_type', 'module')
+        .order('order_index');
 
-    // Usando modelo 1.5-flash para garantir estabilidade (ou mantenha o 3.0 se sua chave permitir)
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+      if (modules && modules.length > 0) {
+        modules.forEach((m: any) => modulesMap[m.id] = m.title);
+        const moduleIds = modules.map((m: any) => m.id);
 
-    const prompt = `
-      Atue como um Professor Titular de Medicina realizando uma aula de revisão teórica aprofundada.
-      
-      CONTEXTO DE ESTUDO:
-      Módulo Central: "${node.title}"
-      Roteiro de Aulas (Ilhas): 
-      ${islandsList}
+        const { data: trackLessons } = await supabaseAdmin
+          .from('study_nodes')
+          .select('title, ai_context, parent_id')
+          .in('parent_id', moduleIds)
+          .eq('node_type', 'objective')
+          .order('order_index');
 
-      === FONTES DE CONTEXTO (RAG) ===
-      ${ragContext}
-
-      === PROTOCOLO DE CRIAÇÃO (Siga a Ordem de Prioridade) ===
-      1. PRIORIDADE MÁXIMA (A Verdade): 
-         - Verifique se há informações no bloco "FONTES DE CONTEXTO" acima.
-         - Se houver dados contraditórios entre seu conhecimento e o contexto, O CONTEXTO VENCE.
-         - Use esses dados para garantir a exatidão técnica (valores de referência, doses, classificações).
-
-      2. COMPLETUDE (O Professor):
-         - Onde o contexto for omisso ou incompleto, USE SEU VASTO CONHECIMENTO para explicar, dar exemplos e conectar os pontos.
-         - NÃO deixe o texto raso só porque o contexto foi curto. Ex: Se o contexto só citou que "o exame é Raio-X", use seu conhecimento para explicar O QUE buscar no Raio-X.
-
-      OBJETIVO:
-      Criar um MATERIAL DE ESTUDO completo e técnico que explique os conceitos fundamentais dessas aulas. O texto deve servir como uma fonte de aprendizado real, não apenas um guia de navegação.
-
-      ESTRUTURA OBRIGATÓRIA (Use Markdown Rico):
-      
-      ## 🏥 Panorama Clínico e Fisiopatológico
-      (Introdução técnica. Defina o tema central, explique a fisiopatologia base ou o mecanismo fisiológico principal envolvido. Se for doença, cite brevemente a epidemiologia ou quadro clássico).
-
-      ## 🧬 Aprofundamento por Tópico
-      (Para CADA ilha listada no roteiro, crie um tópico '### Nome da Ilha' e explique:)
-      - **Mecanismo/Conceito:** Explique DETALHADAMENTE o funcionamento. (Ex: Se for Farmaco, explique o mecanismo de ação molecular. Se for Doença, a patogênese. Se for Anatomia, as relações nobres).
-      - **Aplicação Prática:** Como isso se traduz na clínica, no exame físico ou no diagnóstico?
-      *Seja técnico: Use termos médicos corretos, cite valores de referência se necessário.*
-
-      ## ⚠️ Pérolas de Residência (High-Yield)
-      (Liste 3 a 5 pontos cruciais, pegadinhas comuns de prova ou detalhes que diferenciam o generalista do especialista sobre este tema).
-
-      FONTES E TOM:
-      - Baseie-se em literatura padrão-ouro (Harrison, Guyton, Diretrizes Brasileiras).
-      - Tom sério, didático e direto.
-      - Use **negrito** para termos-chave.
-      - Explique o "Porquê" dos processos (ex: "Ocorre dispneia PORQUE o aumento da pressão hidrostática capilar...").
-    `;
-
-    const result = await model.generateContent(prompt);
-    const aiText = result.response.text();
-
-    // 4. SALVANDO COMO ADMIN (Aqui estava o erro antes)
-    const { error: updateError } = await supabaseAdmin
-      .from('study_nodes')
-      .update({ ai_description: aiText })
-      .eq('id', nodeId);
-
-    if (updateError) {
-      console.error("Erro CRÍTICO ao salvar:", updateError.message);
-      // Se der erro aqui, é porque a chave SERVICE_ROLE está errada no .env
+        lessons = trackLessons || [];
+      }
     } else {
-      console.log("✅ Salvo com sucesso via Admin!");
+      // MÓDULO: Busca Aulas diretas
+      modulesMap[node.id] = node.title;
+      const { data: modLessons } = await supabaseAdmin
+        .from('study_nodes')
+        .select('title, ai_context, parent_id')
+        .eq('parent_id', nodeId)
+        .eq('node_type', 'objective')
+        .order('order_index');
+
+      lessons = modLessons || [];
     }
 
-    return {
-      title: node.title,
-      description: aiText,
-      source: 'ai_generated'
-    };
+    // FORMATAÇÃO DO CONTEXTO AGRUPADO
+    if (lessons.length > 0) {
+      const groupByModule: Record<string, string[]> = {};
 
-  } catch (error) {
-    console.error("Erro na IA:", error);
-    return { error: "Não foi possível gerar o roteiro agora." };
+      lessons.forEach((l: any) => {
+        const mTitle = modulesMap[l.parent_id] || "Conteúdo";
+        if (!groupByModule[mTitle]) groupByModule[mTitle] = [];
+        // [Lesson Title]: context
+        groupByModule[mTitle].push(`${l.title} (${l.ai_context || "Geral"})`);
+      });
+
+      compiledContext = Object.entries(groupByModule).map(([mod, ctxs]) => {
+        return `[${mod}]: ${ctxs.join(" + ")}`;
+      }).join("; \n\n");
+    }
   }
+
+  // 4. RETORNO OTIMIZADO
+  return {
+    title: node.title,
+    description: node.ai_description, // Pode ser null (sem auto-gen)
+    ai_context: compiledContext,
+    node_type: node.node_type, // Vital para o frontend saber onde salvar
+    source: 'database'
+  };
 }

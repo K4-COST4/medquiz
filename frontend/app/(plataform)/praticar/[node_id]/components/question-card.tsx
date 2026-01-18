@@ -43,7 +43,7 @@ export const QuestionCard = ({
                 {/* MULTIPLE CHOICE */}
                 {question.q_type === 'multiple_choice' && (
                     <div className="grid gap-3">
-                        {question.content.options.map((option: any) => {
+                        {question.content.options.map((option: any, index: number) => {
                             let btnColor = "bg-white border-slate-200 hover:bg-slate-50";
                             if (isAnswered) {
                                 if (option.isCorrect) btnColor = "bg-emerald-100 border-emerald-500 text-emerald-800";
@@ -53,7 +53,7 @@ export const QuestionCard = ({
                                 btnColor = "bg-violet-50 border-violet-500 text-violet-700 ring-2 ring-violet-200";
                             }
                             return (
-                                <button key={option.id} disabled={isAnswered} onClick={() => onSelectOption(option.id)}
+                                <button key={option.id || index} disabled={isAnswered} onClick={() => onSelectOption(option.id)}
                                     className={`w-full p-4 rounded-2xl border-2 font-bold text-left transition-all ${btnColor}`}>
                                     <div className="flex items-center gap-3">
                                         <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-black uppercase shrink-0">{option.id}</div>
@@ -75,22 +75,22 @@ export const QuestionCard = ({
                                 <>
                                     <button disabled={isAnswered} onClick={() => onSelectOption(true)}
                                         className={`rounded-2xl border-2 font-black text-lg transition-all ${isAnswered
-                                                ? (isTrueCorrect ? "bg-emerald-100 border-emerald-500 text-emerald-700" // IT WAS TRUE
-                                                    : selectedOption === true ? "bg-rose-100 border-rose-500 text-rose-700" // WRONG GUESS
-                                                        : "opacity-50 border-slate-200")
-                                                : selectedOption === true
-                                                    ? "bg-violet-50 border-violet-500 text-violet-700"
-                                                    : "bg-white border-slate-200 hover:border-violet-300"
+                                            ? (isTrueCorrect ? "bg-emerald-100 border-emerald-500 text-emerald-700" // IT WAS TRUE
+                                                : selectedOption === true ? "bg-rose-100 border-rose-500 text-rose-700" // WRONG GUESS
+                                                    : "opacity-50 border-slate-200")
+                                            : selectedOption === true
+                                                ? "bg-violet-50 border-violet-500 text-violet-700"
+                                                : "bg-white border-slate-200 hover:border-violet-300"
                                             }`}>VERDADEIRO</button>
 
                                     <button disabled={isAnswered} onClick={() => onSelectOption(false)}
                                         className={`rounded-2xl border-2 font-black text-lg transition-all ${isAnswered
-                                                ? (!isTrueCorrect ? "bg-emerald-100 border-emerald-500 text-emerald-700" // IT WAS FALSE
-                                                    : selectedOption === false ? "bg-rose-100 border-rose-500 text-rose-700" // WRONG GUESS
-                                                        : "opacity-50 border-slate-200")
-                                                : selectedOption === false
-                                                    ? "bg-violet-50 border-violet-500 text-violet-700"
-                                                    : "bg-white border-slate-200 hover:border-violet-300"
+                                            ? (!isTrueCorrect ? "bg-emerald-100 border-emerald-500 text-emerald-700" // IT WAS FALSE
+                                                : selectedOption === false ? "bg-rose-100 border-rose-500 text-rose-700" // WRONG GUESS
+                                                    : "opacity-50 border-slate-200")
+                                            : selectedOption === false
+                                                ? "bg-violet-50 border-violet-500 text-violet-700"
+                                                : "bg-white border-slate-200 hover:border-violet-300"
                                             }`}>FALSO</button>
                                 </>
                             );

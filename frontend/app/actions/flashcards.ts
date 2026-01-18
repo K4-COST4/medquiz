@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
+import { generateEmbedding } from "./medai-core"; // Importando função de embeddings
 
 // --- TIPOS ---
 export interface Deck {
@@ -10,7 +11,13 @@ export interface Deck {
   description?: string;
   is_public: boolean;
   user_id: string;
-  card_count?: number; // Vamos calcular isso
+  card_count?: number;
+  study_objective?: string;
+  temp_file_path?: string;
+  original_filename?: string;
+  file_uploaded_at?: string;
+  lesson_id?: string;
+  module_id?: string;
 }
 
 export interface Flashcard {
@@ -18,6 +25,18 @@ export interface Flashcard {
   front: string;
   back: string;
   deck_id: string;
+  likes_count: number;
+  dislikes_count: number;
+}
+
+export interface DeckFormData {
+  title: string;
+  description?: string;
+  study_objective: string;
+  temp_file_path?: string;
+  original_filename?: string;
+  lesson_id?: string;
+  module_id?: string;
 }
 
 // 1. LISTAR MEUS DECKS
@@ -29,24 +48,22 @@ export async function getMyDecks() {
 
   const { data, error } = await supabase
     .from('decks')
-    .select('*, flashcards(count)') // Traz a contagem de cards junto
+    .select('*, flashcards(count)')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
   if (error) return [];
 
-  // Formata para retornar o count bonitinho
   return data.map((deck: any) => ({
     ...deck,
     card_count: deck.flashcards[0]?.count || 0
   }));
 }
 
-// 2. BUSCAR UM DECK (Pode ser meu ou público)
+// 2. BUSCAR UM DECK
 export async function getDeckWithCards(deckId: string) {
   const supabase = await createClient();
 
-  // Busca o deck e os cards (O RLS do banco vai impedir se for privado de outro user)
   const { data: deck, error: deckError } = await supabase
     .from('decks')
     .select('*')
@@ -64,23 +81,55 @@ export async function getDeckWithCards(deckId: string) {
   return { deck, cards: cards || [] };
 }
 
-// 3. CLONAR DECK (Salvar na minha biblioteca) 🧬
+// 2.1 BUSCAR DECK POR LIÇÃO (INTEGRAÇÃO DECK-LESSON) 🔗
+export async function getDeckByLessonId(lessonId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: deck, error } = await supabase
+    .from('decks')
+    .select('id')
+    .eq('lesson_id', lessonId)
+    .eq('user_id', user.id) // Garante que é do usuário
+    .single();
+
+  if (error || !deck) return null;
+  return deck.id;
+}
+
+// 2.2 BUSCAR DECK POR MÓDULO (INTEGRAÇÃO DECK-MODULE) 📦
+export async function getDeckByModuleId(moduleId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: deck, error } = await supabase
+    .from('decks')
+    .select('id')
+    .eq('module_id', moduleId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (error || !deck) return null;
+  return deck.id;
+}
+
+// 3. CLONAR DECK
 export async function cloneDeckToMyLibrary(originalDeckId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "Login necessário" };
 
-  // A. Busca os dados originais
   const original = await getDeckWithCards(originalDeckId);
   if (!original) return { success: false, error: "Deck não encontrado" };
 
-  // B. Cria um NOVO Deck para MIM
   const { data: newDeck, error: createError } = await supabase
     .from('decks')
     .insert({
-      title: `${original.deck.title} (Cópia)`, // Adiciona sufixo
+      title: `${original.deck.title} (Cópia)`,
       description: original.deck.description,
-      is_public: false, // Clone começa privado por padrão
+      is_public: false,
       user_id: user.id
     })
     .select()
@@ -88,10 +137,9 @@ export async function cloneDeckToMyLibrary(originalDeckId: string) {
 
   if (createError) return { success: false, error: createError.message };
 
-  // C. Copia todos os cards para o novo Deck
   if (original.cards.length > 0) {
     const cardsToInsert = original.cards.map(card => ({
-      deck_id: newDeck.id, // ID do novo deck
+      deck_id: newDeck.id,
       front: card.front,
       back: card.back,
       difficulty: 'medium'
@@ -105,21 +153,58 @@ export async function cloneDeckToMyLibrary(originalDeckId: string) {
   return { success: true, newDeckId: newDeck.id };
 }
 
-// 4. CRIAR NOVO DECK
+// 4. CRIAR NOVO DECK (LEGADO - Mantendo compatibilidade se necessário, mas idealmente substituir)
 export async function createDeck(title: string, description: string, isPublic: boolean) {
+  return createDeckWithContext({
+    title,
+    description,
+    study_objective: "",
+  });
+}
+
+// 4.1 NOVO CRIAR DECK COM CONTEXTO 🚀
+export async function createDeckWithContext(data: DeckFormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false };
+  if (!user) return { success: false, error: "Login necessário" };
 
-  const { data, error } = await supabase
+  // 1. Gera Embedding do Deck (Mesmo se privado, gera, mas o índice filtra só públicos)
+  let embedding = null;
+  try {
+    const textToEmbed = `Título: ${data.title}\nDescrição: ${data.description || ""}\nObjetivo: ${data.study_objective}`;
+    embedding = await generateEmbedding(textToEmbed);
+  } catch (e) {
+    console.error("Erro ao gerar embedding do deck (ignorado):", e);
+  }
+
+  const payload: any = {
+    title: data.title,
+    description: data.description,
+    study_objective: data.study_objective,
+    is_public: false, // Padrão privado
+    user_id: user.id,
+    embedding: embedding,
+    lesson_id: data.lesson_id, // Link com a aula
+    module_id: data.module_id  // Link com o módulo
+  };
+
+  // Só adiciona campos de arquivo se existirem
+  if (data.temp_file_path) {
+    payload.temp_file_path = data.temp_file_path;
+    payload.original_filename = data.original_filename;
+    payload.file_uploaded_at = new Date().toISOString();
+  }
+
+  const { data: deck, error } = await supabase
     .from('decks')
-    .insert({ title, description, is_public: isPublic, user_id: user.id })
+    .insert(payload)
     .select()
     .single();
 
   if (error) return { success: false, error: error.message };
+
   revalidatePath('/praticar/flashcard');
-  return { success: true, deck: data };
+  return { success: true, deck_id: deck.id };
 }
 
 // 5. ADICIONAR CARD AO DECK
@@ -133,42 +218,29 @@ export async function addCardToDeck(deckId: string, front: string, back: string)
   revalidatePath(`/praticar/flashcard/${deckId}`);
   return { success: !error };
 }
-// 6. SALVAR VÁRIOS CARDS DE UMA VEZ (Para a IA) 🚀
+
+// 6. SALVAR VÁRIOS CARDS DE UMA VEZ
 export async function saveFlashcardsBatch(deckId: string, cards: { front: string; back: string }[]) {
   const supabase = await createClient();
-
-  // Verificação básica de sessão
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "Login necessário" };
 
-  // Verifica se o array não está vazio
-  if (!cards || cards.length === 0) {
-    return { success: false, error: "Nenhum card para salvar." };
-  }
+  if (!cards || cards.length === 0) return { success: false, error: "Nenhum card." };
 
-  // Prepara os dados para o formato do banco (adiciona deck_id em todos)
   const cardsToInsert = cards.map(card => ({
     deck_id: deckId,
     front: card.front,
     back: card.back,
-    difficulty: 'medium' // Padrão
+    difficulty: 'medium'
   }));
 
-  // Insert em Lote (Bulk Insert)
-  const { error } = await supabase
-    .from('flashcards')
-    .insert(cardsToInsert);
+  const { error } = await supabase.from('flashcards').insert(cardsToInsert);
 
   if (error) {
-    console.error("Erro ao salvar lote de cards:", error);
     return { success: false, error: "Erro ao salvar os cards no banco." };
   }
 
-  // ... existing code ...
-
-  // Atualiza a cache para os cards aparecerem na hora
   revalidatePath(`/praticar/flashcard/${deckId}`);
-
   return { success: true, count: cards.length };
 }
 
@@ -178,7 +250,14 @@ export async function deleteDeck(deckId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "Login necessário" };
 
-  // O RLS deve garantir que só o dono apague, mas validamos user_id por segurança
+  // 1. Verificar se tem arquivo para deletar no Storage
+  const { data: deck } = await supabase.from('decks').select('temp_file_path').eq('id', deckId).single();
+
+  if (deck && deck.temp_file_path) {
+    await supabase.storage.from('deck-attachments').remove([deck.temp_file_path]);
+  }
+
+  // 2. Deletar Deck (Cascade cuida dos cards)
   const { error } = await supabase
     .from('decks')
     .delete()
@@ -197,14 +276,7 @@ export async function deleteFlashcard(cardId: string, deckId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "Login necessário" };
 
-  // Verifica se o usuário é dono do deck deste card (Join implícito via RLS ou verificação manual)
-  // Supabase RLS policies normalmente permitem delete se você for dono do deck.
-  // Vamos assumir RLS configurado corretamente para 'flashcards' baseada no 'deck.user_id'
-
-  const { error } = await supabase
-    .from('flashcards')
-    .delete()
-    .eq('id', cardId);
+  const { error } = await supabase.from('flashcards').delete().eq('id', cardId);
 
   if (error) return { success: false, error: error.message };
 
@@ -227,4 +299,40 @@ export async function updateFlashcard(cardId: string, deckId: string, front: str
 
   revalidatePath(`/praticar/flashcard/${deckId}`);
   return { success: true };
+}
+
+// 10. AVALIAR FLASHCARD (Novo) 👍👎
+export async function rateFlashcard(cardId: string, type: 'like' | 'dislike') {
+  const supabase = await createClient();
+
+  // Incremento Atômico usando RPC ou logica simples (aqui simples)
+  // Para incrementar atomicamente no Supabase, o ideal é usar uma RPC function, 
+  // mas vamos fazer via select + update por enquanto (MVP) ou raw query se possível.
+
+  // Opção A: RPC (Mais seguro para concorrência)
+  // await supabase.rpc('increment_likes', { card_id: cardId }) 
+
+  // Opção B: Get + Update (Mais simples agora, risco baixo de colisão para user único estudando)
+  const { data: card } = await supabase
+    .from('flashcards')
+    .select('likes_count, dislikes_count')
+    .eq('id', cardId)
+    .single();
+
+  if (!card) return { success: false };
+
+  const updates: any = {};
+  if (type === 'like') updates.likes_count = (card.likes_count || 0) + 1;
+  else updates.dislikes_count = (card.dislikes_count || 0) + 1;
+
+  const { error } = await supabase
+    .from('flashcards')
+    .update(updates)
+    .eq('id', cardId);
+
+  if (error) return { success: false, error: error.message };
+
+  // Não precisa revalidatePath agressivo aqui para não quebrar o fluxo de estudo visualmente,
+  // mas se quiser atualizar o contador na tela:
+  return { success: true, newCounts: updates };
 }

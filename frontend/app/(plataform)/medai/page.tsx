@@ -13,8 +13,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 import {
     getSessions, createSession, deleteSession, getSessionMessages,
-    sendMessage, getRemainingDailyUses, renameSession
+    sendMessage, renameSession
 } from "./actions"
+import { getUsageQuotas } from "@/app/actions/medai-core"
 
 import { ChatSidebar } from "./chat-sidebar"
 import { ChatArea } from "./chat-area"
@@ -58,12 +59,12 @@ export default function MedAIPage() {
     }, [])
 
     const loadData = async () => {
-        const [loadedSessions, remaining] = await Promise.all([
+        const [loadedSessions, quotas] = await Promise.all([
             getSessions(),
-            getRemainingDailyUses()
+            getUsageQuotas()
         ])
         setSessions(loadedSessions)
-        setUsesLeft(remaining)
+        if (quotas) setUsesLeft(quotas.general.remaining)
 
         // Select most recent if available
         if (loadedSessions.length > 0 && !currentSessionId) {

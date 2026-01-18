@@ -12,9 +12,16 @@ import { QuizFeedback } from "./components/quiz-feedback";
 import { QuizSummary } from "@/components/quiz/quiz-summary";
 import { useQuizLogic } from "./components/use-quiz-logic";
 
-export default function QuizPage({ params }: { params: Promise<{ node_id: string }> }) {
+export default function QuizPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ node_id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const router = useRouter();
   const resolvedParams = use(params);
+  const resolvedSearchParams = use(searchParams);
 
   // Use the Custom Hook
   const {
@@ -44,7 +51,7 @@ export default function QuizPage({ params }: { params: Promise<{ node_id: string
     handleSelfEvaluate,
     handleNext,
     handleFinishSession
-  } = useQuizLogic(resolvedParams.node_id);
+  } = useQuizLogic(resolvedParams.node_id, (resolvedSearchParams.mode as 'standard' | 'review') || 'standard');
 
 
   // --- RENDERING: LOADING STATE ---

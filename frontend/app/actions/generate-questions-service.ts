@@ -1,29 +1,76 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js"; // Admin Client
 import { getEnhancedContext } from "@/app/actions/medai-rag";
+import { generateEmbedding } from "@/app/actions/medai-core"; // Importando embedding
 
 export interface GenerationParams {
     nodeId: string;
-    topic: string;
-    aiContext: string;
     mode: 'standard' | 'boss' | 'kahoot';
     neededDifficulties?: string[];
     forcedTypes?: string[];
-    userId?: string; // Optional: for tracking usages if needed
+    userId?: string;
 }
 
-export async function generateQuestionsService(params: GenerationParams) {
-    const { nodeId, topic, aiContext, mode, neededDifficulties, forcedTypes } = params;
+export async function getOrGenerateQuestions(params: GenerationParams) {
+    const { nodeId, mode, neededDifficulties, forcedTypes, userId } = params;
 
-    // USE ADMIN CLIENT TO BYPASS RLS ON INSERT
+    // 1. INIT SUPABASE ADMIN (Bypass RLS)
     const supabase = createSupabaseAdmin(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // 1. LÓGICA DE MODO (O Maestro decide a regência)
+    // =========================================================
+    // PASSO 1: VERIFICAÇÃO DE CACHE DE TRILHA (Cópia Local)
+    // =========================================================
+    // Se o caller especificou "neededDifficulties", significa que ele JÁ verificou (via RPC)
+    // e sabe que faltam questões. Nesse caso, ignoramos o cache simples.
+    const shouldSkipCache = neededDifficulties && neededDifficulties.length > 0;
+
+    if (!shouldSkipCache) {
+        const { data: existingQuestions } = await supabase
+            .from('track_questions')
+            .select('*')
+            .eq('node_id', nodeId);
+
+        if (existingQuestions && existingQuestions.length > 0) {
+            return { success: true, count: existingQuestions.length, data: existingQuestions, fromCache: true };
+        }
+    }
+
+    // =========================================================
+    // PASSO 2: PREPARAÇÃO DO CONTEXTO (Dados do Nó)
+    // =========================================================
+    const { data: node, error: nodeError } = await supabase
+        .from('study_nodes')
+        .select('title, description, ai_context, parent_id, node_type')
+        .eq('id', nodeId)
+        .single();
+
+    if (nodeError || !node) {
+        throw new Error("Study Node not found for generation.");
+    }
+
+    // =========================================================
+    // PASSO 3: CONFIGURAÇÃO DA RECEITA (O que precisamos?)
+    // =========================================================
+    // =========================================================
+    // PASSO 3: CONFIGURAÇÃO DA RECEITA (O que precisamos?)
+    // =========================================================
     let difficultyRecipe: string[] = [];
     let allowedTypes: string[] = [];
+
+    // Fetch User Level for Standard Mode
+    let userLevel = 0;
+    if (userId && mode === 'standard') {
+        const { data: progress } = await supabase
+            .from('user_node_progress')
+            .select('current_level')
+            .eq('user_id', userId)
+            .eq('node_id', nodeId)
+            .single();
+        if (progress && progress.current_level) userLevel = progress.current_level;
+    }
 
     switch (mode) {
         case 'boss':
@@ -38,156 +85,281 @@ export async function generateQuestionsService(params: GenerationParams) {
             break;
         case 'standard':
         default:
-            difficultyRecipe = neededDifficulties && neededDifficulties.length > 0
-                ? neededDifficulties
-                : ['easy', 'medium', 'medium', 'hard', 'hard'];
+            if (neededDifficulties && neededDifficulties.length > 0) {
+                difficultyRecipe = neededDifficulties;
+            } else {
+                // Lógica Dinâmica baseada no Nível do Usuário
+                if (userLevel === 0) {
+                    // Nível 1: 6 Fáceis + 2 Médias
+                    difficultyRecipe = [...Array(6).fill('easy'), ...Array(2).fill('medium')];
+                } else if (userLevel === 1) {
+                    // Nível 2: 2 Fáceis + 6 Médias
+                    difficultyRecipe = [...Array(2).fill('easy'), ...Array(6).fill('medium')];
+                } else if (userLevel === 2) {
+                    // Nível 3: 1 Fácil + 4 Médias + 3 Difíceis
+                    difficultyRecipe = ['easy', ...Array(4).fill('medium'), ...Array(3).fill('hard')];
+                } else {
+                    // Nível Dourado: 5 Médias + 5 Difíceis
+                    difficultyRecipe = [...Array(5).fill('medium'), ...Array(5).fill('hard')];
+                }
+            }
             allowedTypes = forcedTypes || ['multiple_choice', 'true_false', 'fill_gap'];
             break;
     }
 
-    if (difficultyRecipe.length === 0) {
-        return { success: true, count: 0, data: [] };
-    }
+    // =========================================================
+    // PASSO 4: VECTOR SEARCH (A Buscas no Banco Gigante)
+    // =========================================================
+    let foundQuestions: any[] = [];
 
-    // 2. RAG CONTEXT (Novo!)
-    const ragContext = await getEnhancedContext(topic);
-
-    // 3. PREPARAÇÃO DA IA
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
-        generationConfig: { responseMimeType: "application/json" }
-    });
-
-    // 4. PROMPT
-    const prompt = `
-      Você é o motor de geração de questões do MedQuiz.
-      
-      === REGRAS ESTRITAS DE DIFICULDADE (TAXONOMIA DO MEDQUIZ) ===
-      Para CADA questão, verifique qual dificuldade foi solicitada e siga ESTRITAMENTE estas regras:
-
-      - IF EASY: "Gere questões puramente CONCEITUAIS. Foque em definições, mecanismos fisiológicos e anatomia. PROIBIDO usar casos clínicos ou histórias de pacientes. A pergunta deve ser direta (Ex: 'O que é...', 'Qual a função de...')."
-      
-      - IF MEDIUM: "Gere questões de CORRELAÇÃO ('Bridge Questions'). Use cenários curtos (1 frase) ou descrições de sintomas isolados para testar a ponte entre teoria e prática. (Ex: 'Em um paciente com X, o achado Y indica o quê?')."
-      
-      - IF HARD: "Gere CASOS CLÍNICOS COMPLETOS (Vingetas). Inclua HDA (História da Doença Atual), sinais vitais e/ou exames se pertinente. A questão deve exigir raciocínio clínico complexo para diagnóstico, conduta ou tratamento baseado no caso apresentado."
-      
-      === PARÂMETROS DA SESSÃO ===
-      Tópico: ${topic}
-      Tópico: ${topic}
-      Contexto/Referência do Usuário: ${aiContext || "Nenhum específico"}
-      
-      === FONTES DE CONTEXTO (RAG) ===
-      ${ragContext} 
-
-      === PROTOCOLO DE CRIAÇÃO (HÍBRIDO PRIORITÁRIO) ===
-      1. PRIORIDADE MÁXIMA (A Verdade): 
-         - Use os dados acima (RAG) para garantir a exatidão técnica das questões (valores, condutas).
-         - Se o RAG trouxer um "Estudo X", tente criar uma questão que mencione esse estudo ou seus achados (especialmente para níveis Medium/Hard).
-
-      2. COMPLETUDE:
-         - Se o RAG for omisso, use seu conhecimento para preencher onde for necessário, garantindo que a questão seja pedagogicamente completa.
-            Modo de Jogo: ${mode?.toUpperCase() || "PADRÃO"}
-      
-      === SUA TAREFA ===
-      Gere EXATAMENTE ${difficultyRecipe.length} questões.
-      Dificuldades Obrigatórias (na ordem): ${difficultyRecipe.join(", ")}.
-      Tipos Permitidos: ${allowedTypes.join(", ")}.
-
-      === REGRAS DE ESTILO ===
-      ${mode === 'kahoot' ? "- KAHOOT MODE: Enunciados curtos e diretos (máx 120 caracteres). Alternativas curtas." : "- PADRÃO: Enunciados detalhados, foco em casos clínicos e fisiopatologia."}
-      ${mode === 'boss' ? "- BOSS MODE: Questões 'hard' devem ser multidisciplinares e complexas." : ""}
-      
-      === FORMATO JSON (ARRAY) ===
-      Retorne um array de objetos. Estrutura obrigatória para cada tipo:
-
-      TIPO 'multiple_choice':
-      {
-        "statement": "...",
-        "q_type": "multiple_choice",
-        "difficulty": "...",
-        "commentary": "Explicação educativa...",
-        "content": {
-          "options": [
-             { "id": "a", "text": "Errada", "isCorrect": false },
-             { "id": "b", "text": "Certa", "isCorrect": true },
-             { "id": "c", "text": "Errada", "isCorrect": false },
-             { "id": "d", "text": "Errada", "isCorrect": false }
-          ]
-        }
-      }
-
-      ${allowedTypes.includes('true_false') ? `
-      TIPO 'true_false':
-      {
-        "statement": "Afirmação completa...",
-        "q_type": "true_false",
-        "difficulty": "...",
-        "commentary": "...",
-        "content": { 
-           "options": [
-             { "id": "true", "text": "Verdadeiro", "isCorrect": true },
-             { "id": "false", "text": "Falso", "isCorrect": false }
-           ]
-        }
-        NOTA: 'isCorrect' deve refletir a verdade da afirmação.
-      }` : ""}
-
-      ${allowedTypes.includes('fill_gap_select') ? `
-      TIPO 'fill_gap_select':
-      {
-        "statement": "Frase com uma lacuna marcada por ___ para preencher.",
-        "q_type": "fill_gap_select",
-        "difficulty": "...",
-        "commentary": "...",
-        "content": {
-          "correct_answer": "Resposta",
-          "options": [
-             { "id": "a", "text": "Resposta", "isCorrect": true },
-             { "id": "b", "text": "Distrator1", "isCorrect": false },
-             { "id": "c", "text": "Distrator2", "isCorrect": false },
-             { "id": "d", "text": "Distrator3", "isCorrect": false }
-          ]
-        }
-      }` : ""}
-    `;
-
-    // 4. EXECUÇÃO
-    try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-
-        let generatedQuestions;
+    // Só buscamos vetores se NÃO estivermos no modo "boss" especifico ou se quisermos reaproveitar
+    // Para simplificar, vamos tentar buscar para 'standard' e 'kahoot'.
+    if (mode !== 'boss') {
         try {
-            generatedQuestions = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+            // A. Gerar Embedding do Tópico (Search Vector)
+            // Usamos o título do nó + contexto pai se houver
+            let searchTopic = node.title;
+            if (node.parent_id) {
+                const { data: parentNode } = await supabase.from('study_nodes').select('title').eq('id', node.parent_id).single();
+                if (parentNode) searchTopic += " " + parentNode.title;
+            }
+
+            const queryVector = await generateEmbedding(searchTopic);
+
+            // B. Buscar Questões Similares (RPC)
+            // Tentamos buscar um pouco mais para poder filtrar por dificuldade depois
+            const { data: vectorMatches, error: matchError } = await supabase.rpc('match_questions', {
+                query_embedding: queryVector,
+                match_threshold: 0.75, // Threshold de similaridade (quanto maior, mais frouxo, mas no RPC usamos 1 - distance)
+                // Se RPC usa distance < 1 - threshold. 0.8 significa distance < 0.2 (muito similar).
+                // Vamos ajustar: se threshold no RPC é similarity (0..1), entao 0.75 é bom.
+                match_count: 20,      // Buscamos 20 para ter variedade
+                filter_topics: null,  // Poderíamos passar array, mas vetor já cuida da semântica
+                filter_difficulty: null // Filtramos em código para pegar a receita exata
+            });
+
+            if (!matchError && vectorMatches) {
+                // C. Filtrar e Preencher a "Receita"
+                // Para cada item da receita (ex: 'easy'), tentamos achar um match no banco
+                const usedIds = new Set();
+
+                // Vamos tentar encontrar questões do banco que ainda não foram usadas por esse usuário neste nó...
+                // Mas 'track_questions' é por nó. Se o usuário já fez esse nó, o cache do Passo 1 já pegou.
+                // A preocupação é: se o usuário resetar o nó? Ou se já viu essa questão em OUTRO nó?
+                // Por enquanto, assumimos que se está no bank e é relevante, serve.
+
+                const needed = [...difficultyRecipe]; // Cópia
+
+                for (let i = 0; i < needed.length; i++) {
+                    const targetDiff = needed[i];
+                    // Tenta achar uma questão no vectorMatches que bata a dificuldade e não usada
+                    const matchIndex = vectorMatches.findIndex((q: any) =>
+                        q.difficulty === targetDiff &&
+                        !usedIds.has(q.id) &&
+                        allowedTypes.includes(q.q_type)
+                    );
+
+                    if (matchIndex >= 0) {
+                        const match = vectorMatches[matchIndex];
+                        foundQuestions.push({
+                            ...match,
+                            is_vector_match: true // Marker
+                        });
+                        usedIds.add(match.id);
+                        needed[i] = 'DONE'; // Marca como preenchido
+                    }
+                }
+
+                // Removemos os 'DONE' da lista de needed, deixando apenas o que FALTOU
+                difficultyRecipe = needed.filter(d => d !== 'DONE');
+            }
+
         } catch (e) {
-            console.error("Erro JSON IA:", text);
-            throw new Error("Falha ao parsear resposta da IA");
+            console.error("Vector Search Failed (Ignored):", e);
+            // Segue vida, vai gerar tudo via IA
+        }
+    }
+
+    // Se a receita zerou, significa que achamos TUDO no banco!
+    if (difficultyRecipe.length === 0) {
+        // Pula geração IA -> Vai direto para o Bridge (Passo 6)
+    } else {
+        // =========================================================
+        // PASSO 5: FALLBACK GENERATION (IA cria o que faltou)
+        // =========================================================
+        // Aqui usamos a lógica antiga, mas APENAS para o que faltou (difficultyRecipe)
+
+        // Define System Prompt & Context (Igual ao código original)
+        let systemPrompt = "";
+        let contextSource = "";
+
+        if (node.ai_context && node.ai_context.trim().length > 0) {
+            contextSource = "CUSTOM_TRACK";
+            // fetch RAG even for custom track
+            const ragContent = await getEnhancedContext(node.title);
+            systemPrompt = `
+            VOCÊ É UM PROFESSOR DE MEDICINA CRIANDO QUESTÕES DE PROVA.
+            
+            == CONTEXTO PEDAGÓGICO (PRIORIDADE TOTAL) ==
+            """ ${node.ai_context} """
+            
+            == CONTEXTO BIBLIOGRÁFICO (RAG - Background Knowledge) ==
+            """ ${ragContent} """
+
+            REGRAS DE OURO:
+            1. Baseie-se PRINCIPALMENTE no Contexto Pedagógico.
+            2. O Contexto Bibliográfico serve apenas como suporte técnico de fundo. NÃO CITE o RAG a menos que seja explicitamente solicitado ou necessário para validar uma informação técnica.
+            3. Formule como Verdades Médicas Universais ou Casos Clínicos.
+            `;
+        } else {
+            contextSource = "OFFICIAL_TRACK";
+            const ragContent = await getEnhancedContext(node.title);
+            systemPrompt = `
+            VOCÊ É UM PROFESSOR DE MEDICINA.
+            Tópico: ${node.title}
+            Contexto RAG: """ ${ragContent} """
+            REGRAS: 
+            1. Use RAG ou conhecimento médico. Formule como Casos Clínicos ou Verdades Médicas.
+            2. O RAG é uma fonte de consulta, o usuário não consegue ler o texto, portanto, evite citar o que selecionou nas questões.
+            `;
         }
 
-        // 5. SALVAMENTO
-        const questionsToInsert = generatedQuestions.map((q: any, index: number) => ({
-            node_id: nodeId,
-            statement: q.statement,
-            q_type: q.q_type,
-            difficulty: difficultyRecipe[index] || q.difficulty,
-            content: q.content,
-            commentary: q.commentary,
-            xp_reward: (difficultyRecipe[index] || q.difficulty) === 'hard' ? 20 : 10
-        }));
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+        const model = genAI.getGenerativeModel({
+            model: "gemini-3-flash-preview",
+            generationConfig: { responseMimeType: "application/json" }
+        });
 
-        const { data, error } = await supabase
-            .from('track_questions')
-            .insert(questionsToInsert)
-            .select();
+        const BATCH_SIZE = 5;
+        const totalNeeded = difficultyRecipe.length;
 
-        if (error) throw error;
+        // Split recipe into chunks
+        const chunks = [];
+        for (let i = 0; i < totalNeeded; i += BATCH_SIZE) {
+            chunks.push(difficultyRecipe.slice(i, i + BATCH_SIZE));
+        }
 
-        return { success: true, count: data.length, data };
+        console.log(`🤖 Maestro: Gerando ${totalNeeded} questões em ${chunks.length} lotes...`);
 
-    } catch (error: any) {
-        console.error("Service Logic Error:", error);
-        throw error;
+        // Process chunks (Parallel or Sequential? Parallel is faster)
+        const batchPromises = chunks.map(async (chunkRecipe, chunkIndex) => {
+            const finalPrompt = `
+              ${systemPrompt}
+              === TAREFA (LOTE ${chunkIndex + 1}) ===
+              Gere EXATAMENTE ${chunkRecipe.length} questões.
+              Dificuldades: ${chunkRecipe.join(", ")}.
+              Tipos permitidos: ${allowedTypes.join(", ")}.
+              
+              === FORMATO JSON (RIGOROSO) ===
+              Retorne um ARRAY de objetos.
+              Estrutura OBRIGATÓRIA para "options" em Multiple Choice:
+              "options": [
+                 { "id": "A", "text": "Texto da opção A...", "isCorrect": false },
+                 { "id": "B", "text": "Texto da opção B...", "isCorrect": true },
+                 ...
+              ]
+              
+              Estrutura Completa do Objeto:
+              { 
+                "statement": "...", 
+                "q_type": "multiple_choice", 
+                "difficulty": "...", 
+                "commentary": "...",
+                "content": { 
+                   "options": [...],
+                   "correct_answer": "..." // OBRIGATÓRIO se for fill_gap
+                }
+              }
+              (Se for true_false, use id="true"/"false" e text="Verdadeiro"/"Falso")
+              (Se for fill_gap, OBRIGATÓRIO fornecer "options" contendo a reposta correta e 3 distratores incorretos. NÃO use campo de texto livre.)
+            `;
+
+            try {
+                const result = await model.generateContent(finalPrompt);
+                const text = result.response.text();
+                const jsonRaw = JSON.parse(text.replace(/```json|```/g, "").trim());
+                return Array.isArray(jsonRaw) ? jsonRaw : [jsonRaw];
+            } catch (err) {
+                console.error(`Erro no lote ${chunkIndex + 1}:`, err);
+                return [];
+            }
+        });
+
+        const results = await Promise.all(batchPromises);
+        let generatedNew = results.flat();
+
+        // =========================================================
+        // PASSO 5.1: INGESTÃO ASSÍNCRONA (Save to Bank)
+        // =========================================================
+        if (generatedNew.length > 0) {
+            // É melhor salvar agora e pegar os IDs.
+            const bankInserts = generatedNew.map((q: any) => ({
+                statement: q.statement,
+                options: (q.content && q.content.options) ? q.content.options : (q.options || []), // Garante array vazio se nulo
+                q_type: q.q_type,
+                difficulty: q.difficulty,
+                commentary: q.commentary,
+                topics: [node.title], // Tag inicial
+                source: 'ai_auto_gen',
+                content: q.content || { options: q.options || [] } // Garante content COMPLETO na tabela nova
+            }));
+
+            // Tenta inserir no Bank
+            const { data: savedBankQuestions, error: bankError } = await supabase
+                .from('question_bank')
+                .insert(bankInserts)
+                .select();
+
+            if (bankError) {
+                console.error("❌ ERRO CRÍTICO AO SALVAR NO QUESTION_BANK:", bankError);
+                // Não damos throw, deixamos o fallback salvar no track_questions
+            }
+
+            if (!bankError && savedBankQuestions) {
+                // Background: Gerar Embedding para eles depois? 
+                (async () => {
+                    for (const q of savedBankQuestions) {
+                        try {
+                            const vec = await generateEmbedding(q.statement); // Vetoriza enunciado
+                            await supabase.from('question_bank').update({ embedding: vec }).eq('id', q.id);
+                        } catch (err) { console.error("Background Embedding Error", err) }
+                    }
+                })();
+
+                // Adiciona na lista de encontrados
+                foundQuestions.push(...savedBankQuestions);
+            } else {
+                // Fallback se falhar banco: usa o JSON puro e marca sem ID original
+                foundQuestions.push(...generatedNew.map((q: any) => ({ ...q, content: q.content || { options: q.options } })));
+            }
+        }
+
     }
+
+    // =========================================================
+    // PASSO 6: THE BRIDGE (Track Questions Insert)
+    // =========================================================
+    // Agora temos 'foundQuestions' (vinda do Vetor ou da IA salvas no Banco)
+    // Vamos inserir na tabela do usuário 'track_questions'
+
+    // Normalização final antes de inserir
+    const questionsToInsert = foundQuestions.map((q: any) => ({
+        node_id: nodeId,
+        statement: q.statement,
+        q_type: q.q_type,
+        difficulty: (q.difficulty || 'medium').toLowerCase(),
+        content: q.content || { options: q.options }, // Garante estrutura
+        commentary: q.commentary,
+        xp_reward: (q.difficulty) === 'hard' ? 20 : 10,
+        original_question_id: q.id // LINK IMPORTANTE (pode ser undefined se falhou save, ok)
+    }));
+
+    const { data, error } = await supabase
+        .from('track_questions')
+        .insert(questionsToInsert)
+        .select();
+
+    if (error) throw error;
+
+    return { success: true, count: data.length, data, fromCache: false, source: "HYBRID" };
 }

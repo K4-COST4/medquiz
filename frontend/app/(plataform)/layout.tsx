@@ -41,12 +41,14 @@ export default async function PlatformLayout({
 
       {/* 2. Área Principal (Onde vai o Dashboard) */}
       <main className="flex-1 overflow-y-auto relative w-full scroll-smooth">
-        {/* Header com Vidas */}
+        {/* Header com Vidas (DESATIVADO TEMPORARIAMENTE) */}
         <div className="absolute top-4 right-4 z-50">
-          <HeartsWidget
-            hearts={currentHearts ?? 5}
-            onStartPractice={refillHeartByPractice}
-          />
+          {false && (
+            <HeartsWidget
+              hearts={currentHearts ?? 5}
+              onStartPractice={refillHeartByPractice}
+            />
+          )}
         </div>
 
         {/* Padding bottom no mobile para não esconder conteúdo atrás da barra */}

@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server"
 import { AI_CONTEXTS, type AIContextKey } from "@/lib/ai-prompts"
 import { MedAIResponse } from "@/types/medai"
 
-const DAILY_LIMIT = 5
+const DAILY_LIMIT = 50
 
 interface MedAIOptions {
     contextKey: AIContextKey
@@ -16,7 +16,14 @@ interface MedAIOptions {
     systemInstructionArgs?: string
     inlineData?: { data: string, mimeType: string }
     skipQuota?: boolean
+    quotaType?: 'general' | 'flashcard' | 'track' | 'unlimited'
 }
+
+const LIMITS = {
+    general: 10,
+    flashcard: 1,
+    track: 1 // 1 per week
+};
 
 const getGenAI = () => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
@@ -33,23 +40,56 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
 
     // 2. Quota Check
     const today = new Date().toISOString().split('T')[0]
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('ai_usage_count, ai_usage_date')
-        .eq('id', user.id)
-        .single()
+    const quotaType = options.quotaType || 'general';
+    let profile: any = null;
+    let currentCount = 0; // For verification calculation in return
 
-    let currentCount = 0
-    if (profile && profile.ai_usage_date === today) {
-        currentCount = profile.ai_usage_count || 0
-    }
+    if (quotaType === 'unlimited') {
+        // Sem restrições
+    } else {
+        const { data: fetchedProfile } = await supabase
+            .from('profiles')
+            .select('ai_usage_count, ai_usage_date, daily_flashcards_count, last_track_generation_date')
+            .eq('id', user.id)
+            .single()
 
-    if (currentCount >= DAILY_LIMIT) {
-        return {
-            success: false,
-            message: "Limite diário atingido.",
-            limitReached: true,
-            usesLeft: 0
+        profile = fetchedProfile;
+
+        // Verificação por Tipo de Cota
+        if (profile) {
+            // Set currentCount for general context (used in return)
+            if (profile.ai_usage_date === today) {
+                currentCount = profile.ai_usage_count || 0;
+            }
+
+            // A. FLASHCARDS (1 por dia)
+            if (quotaType === 'flashcard') {
+                let flashCount = 0;
+                if (profile.ai_usage_date === today) {
+                    flashCount = profile.daily_flashcards_count || 0;
+                }
+                if (flashCount >= LIMITS.flashcard && !options.skipQuota) {
+                    return { success: false, message: "Limite diário de Flashcards atingido.", limitReached: true, usesLeft: 0 };
+                }
+            }
+            // B. TRACKS (1 por semana)
+            else if (quotaType === 'track') {
+                const lastDate = profile.last_track_generation_date ? new Date(profile.last_track_generation_date) : null;
+                if (lastDate) {
+                    const diffTime = Math.abs(new Date().getTime() - lastDate.getTime());
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    if (diffDays < 7 && !options.skipQuota) {
+                        return { success: false, message: `Limite de 1 trilha por semana. Aguarde ${7 - diffDays} dias.`, limitReached: true, usesLeft: 0 };
+                    }
+                }
+            }
+            // C. GENERAL (10 por dia)
+            else if (quotaType === 'general') {
+                // currentCount already set above
+                if (currentCount >= LIMITS.general && !options.skipQuota) {
+                    return { success: false, message: "Limite diário geral atingido.", limitReached: true, usesLeft: 0 };
+                }
+            }
         }
     }
 
@@ -92,20 +132,50 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
 
         let parsedData = null
         if (options.responseType === 'json') {
-            const cleanJson = finalText.replace(/```json|```/g, '').trim()
-            finalText = cleanJson
+            // 1. Remove Markdown code blocks (Case insensitive)
+            let cleanJson = finalText.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+            // 2. Extrair apenas o JSON se houver texto em volta
+            const firstBrace = cleanJson.indexOf("{");
+            const lastBrace = cleanJson.lastIndexOf("}");
+
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
+            }
+
+            finalText = cleanJson;
             try {
-                parsedData = JSON.parse(cleanJson)
+                parsedData = JSON.parse(cleanJson);
             } catch (e) {
+                console.error("JSON Parse Error:", e);
+                // Retorna o texto original na mensagem para tentativa de debug ou fallback
                 return { success: false, message: finalText, error: "IA retornou formato inválido." }
             }
         }
 
-        if (!options.skipQuota) {
-            await supabase.from('profiles').update({
-                ai_usage_date: today,
-                ai_usage_count: currentCount + 1
-            }).eq('id', user.id)
+        if (!options.skipQuota && quotaType !== 'unlimited') {
+            const updates: any = { ai_usage_date: today };
+
+            if (quotaType === 'general') {
+                const currentGeneral = (profile?.ai_usage_date === today) ? (profile?.ai_usage_count || 0) : 0;
+                updates.ai_usage_count = currentGeneral + 1;
+                // Mantém o de flashcards se já for hoje, senão reseta
+                if (profile?.ai_usage_date !== today) updates.daily_flashcards_count = 0;
+            }
+            else if (quotaType === 'flashcard') {
+                const currentFlash = (profile?.ai_usage_date === today) ? (profile?.daily_flashcards_count || 0) : 0;
+                updates.daily_flashcards_count = currentFlash + 1;
+                // Mantém o geral se já for hoje, senão reseta
+                if (profile?.ai_usage_date !== today) updates.ai_usage_count = 0;
+            }
+            else if (quotaType === 'track') {
+                updates.last_track_generation_date = new Date().toISOString();
+                delete updates.ai_usage_date; // Remove do update p/ não afetar ciclo diário
+            }
+
+            if (Object.keys(updates).length > 0) {
+                await supabase.from('profiles').update(updates).eq('id', user.id)
+            }
         }
 
         return {
@@ -137,6 +207,70 @@ export async function getDailyUsesLeft() {
 
     if (!profile || profile.ai_usage_date !== today) return DAILY_LIMIT
     return Math.max(0, DAILY_LIMIT - (profile.ai_usage_count || 0))
+}
+
+// Helper para obter status de todas as cotas (UI Indicators)
+export async function getUsageQuotas() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, last_track_generation_date')
+        .eq('id', user.id)
+        .single();
+
+    if (!profile) return null;
+
+    // 1. General
+    let generalUsed = 0;
+    if (profile.ai_usage_date === today) {
+        generalUsed = profile.ai_usage_count || 0;
+    }
+    const generalRemaining = Math.max(0, LIMITS.general - generalUsed);
+
+    // 2. Flashcards
+    let flashUsed = 0;
+    if (profile.ai_usage_date === today) {
+        flashUsed = profile.daily_flashcards_count || 0;
+    }
+    const flashcardsRemaining = Math.max(0, LIMITS.flashcard - flashUsed);
+
+    // 3. Tracks
+    let trackAvailable = true;
+    let daysUntilNextTrack = 0;
+
+    if (profile.last_track_generation_date) {
+        const lastDate = new Date(profile.last_track_generation_date);
+        const diffTime = Math.abs(new Date().getTime() - lastDate.getTime());
+        const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+        if (diffDays < 7) {
+            trackAvailable = false;
+            daysUntilNextTrack = Math.ceil(7 - diffDays);
+        }
+    }
+
+    return {
+        general: {
+            remaining: generalRemaining,
+            limit: LIMITS.general,
+            used: generalUsed
+        },
+        flashcard: {
+            remaining: flashcardsRemaining,
+            limit: LIMITS.flashcard,
+            used: flashUsed
+        },
+        track: {
+            available: trackAvailable,
+            daysUntilNext: daysUntilNextTrack,
+            limit: LIMITS.track
+        }
+    };
 }
 
 // Helper para Embeddings (usado no RAG)

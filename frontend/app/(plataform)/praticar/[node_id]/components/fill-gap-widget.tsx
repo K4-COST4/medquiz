@@ -27,7 +27,16 @@ export const FillGapWidget = ({ question, isAnswered, selectedOption, setSelecte
 
     // Memoriza a ordem embaralhada para não pular quando clicar
     const shuffledOptions = useMemo(() => {
-        if (hasOptions) return shuffleArray(content.options);
+        if (hasOptions) {
+            // Normalize options: AI might return objects {id, text} due to strict prompt
+            const safeOptions = content.options.map((opt: any) => {
+                if (typeof opt === 'object' && opt !== null) {
+                    return opt.text || opt.id || "";
+                }
+                return opt;
+            });
+            return shuffleArray(safeOptions);
+        }
         return [];
     }, [question.id, hasOptions, content.options]); // Só reembaralha se mudar de questão
 

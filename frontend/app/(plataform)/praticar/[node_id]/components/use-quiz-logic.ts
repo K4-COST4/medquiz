@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import { deductHeart, updateUserStreak } from "../../../user/actions";
-import { getStudentSession, saveQuestionHistory } from "../../actions";
-import { generateQuestionsService } from "@/app/actions/generate-questions-service";
+import { getStudentSession, saveQuestionHistory, getReviewSession } from "../../actions";
+import { getOrGenerateQuestions } from "@/app/actions/generate-questions-service";
 
 // Tipos locais ou importados
 type Question = any; // Idealmente importar de types/medai.ts se disponível, mas seguiremos o page.tsx original por enquanto
@@ -13,7 +13,7 @@ const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export function useQuizLogic(node_id: string) {
+export function useQuizLogic(node_id: string, mode: 'standard' | 'review' = 'standard') {
     const router = useRouter();
 
     // Estados
@@ -65,7 +65,13 @@ export function useQuizLogic(node_id: string) {
                 if (!isMounted) return;
                 console.log(`useQuizLogic: INICIANDO SESSÃO (Tentativa ${retryCount + 1}) - Node ID:`, node_id);
 
-                const response = await getStudentSession(node_id);
+                let response;
+                if (mode === 'review') {
+                    console.log("useQuizLogic: MODO REVISÃO ATIVADO");
+                    response = await getReviewSession(node_id);
+                } else {
+                    response = await getStudentSession(node_id);
+                }
 
                 if (!response.success || !response.data) {
                     throw new Error(response.error || "Erro desconhecido ao iniciar sessão.");
@@ -77,6 +83,11 @@ export function useQuizLogic(node_id: string) {
                 if (data.questions.length === 0) {
                     console.warn("⚠️ Banco vazio detectado. Detectando falha de geração automática.");
 
+                    // Em modo review, se não tem questões é porque não tem erros, não geramos novas.
+                    if (mode === 'review') {
+                        throw new Error("Não há erros pendentes para revisão nesta aula.");
+                    }
+
                     if (retryCount < 2) { // Tenta gerar ativamente 2 vezes
                         console.log("⚡ INICIANDO GERAÇÃO FORÇADA...");
                         setLoadingMessage(`Maestro: Criando novas questões... (Tentativa ${retryCount + 1})`);
@@ -84,21 +95,28 @@ export function useQuizLogic(node_id: string) {
 
                         try {
                             // CHAMADA EXPLÍCITA AO GERADOR
-                            await generateQuestionsService({
+                            const result = await getOrGenerateQuestions({
                                 nodeId: node_id,
-                                topic: data.nodeTitle, // Pegamos do retorno parcial
-                                aiContext: "Geração de emergência (Retry Trigger)", // Contexto simplificado ou nulo
                                 mode: data.isBoss ? 'boss' : 'standard',
-                                neededDifficulties: ['easy', 'medium', 'medium', 'hard', 'hard'] // Receita Padrão Hardcoded para emergência
+                                neededDifficulties: ['easy', 'medium', 'medium', 'hard', 'hard'] // Receita Padrão
                             });
-                            console.log("✅ Geração forçada concluída via Hook.");
-                        } catch (genErr) {
-                            console.error("❌ Falha na geração forçada:", genErr);
-                        }
 
-                        retryCount++;
-                        setTimeout(initializeSession, 1000); // Retry imediato após gerar
-                        return; // Sai desta execução
+                            if (!result.success || !result.data || result.data.length === 0) {
+                                throw new Error("Não há questões disponíveis no momento.");
+                            }
+
+                            console.log("✅ Geração forçada concluída via Hook. Usando dados retornados.");
+
+                            // 🚀 CORREÇÃO PRINCIPAL: Usar os dados retornados DIRETAMENTE
+                            data.questions = result.data;
+
+                            // Não precisamos mais do retry loop, pois já temos as questões!
+                            // O fluxo segue abaixo para setQuestions(data.questions)
+
+                        } catch (genErr: any) {
+                            console.error("❌ Falha na geração forçada:", genErr);
+                            throw new Error(genErr.message || "Erro ao tentar gerar questões.");
+                        }
                     } else {
                         throw new Error("Não foi possível gerar questões. O sistema parece sobrecarregado ou sem contexto.");
                     }
@@ -128,28 +146,47 @@ export function useQuizLogic(node_id: string) {
                 if (currentNode?.parent_id) {
                     const parentId = currentNode.parent_id;
 
-                    // Busca o Avô (Tópico)
+                    // Busca o Avô (Tópico ou Trilha Customizada)
                     const { data: parentNode } = await supabase
                         .from('study_nodes')
-                        .select('parent_id')
+                        .select('parent_id, node_type')
                         .eq('id', parentId)
                         .single();
 
                     const grandParentId = parentNode?.parent_id;
 
-                    if (grandParentId) { // T e m a  >  M o d u l o  >  A u l a (Nó atual)
-                        const themeId = await findThemeAncestor(grandParentId);
-                        // Se o avô existe, o themeId dele deve ser o próprio theme raiz se a estrutura for T > M > A
-                        // Mas na estrutura padrão: Trilha > Tema > Tópico > Aula (Nó)
-                        // Ajuste para estrutura padrão do MedQuiz
-                        setRedirectPath(themeId ? `/trilha/${themeId}/${grandParentId}` : '/trilha');
-                    } else {
-                        // Fallback: Se não tiver avô, talvez seja um nó de nível superior
-                        const themeId = await findThemeAncestor(parentId);
-                        setRedirectPath(themeId ? `/trilha/${themeId}/${parentId}` : '/trilha');
+                    // --- NOVA LÓGICA DE REDIRECT ---
+                    let path = '/trilhas'; // Default fallback seguro (Lista de trilhas)
+
+                    // 1. Verificar se é Trilha Customizada (O pai do módulo é a Trilha)
+                    if (parentNode?.node_type === 'custom_track') {
+                        // Se a hierarquia for Trilha > Aula direto (menos comum, mas possível)
+                        path = `/trilhas/${parentId}`;
                     }
+                    else if (grandParentId) {
+                        // Verificar se o Avô é Custom Track (Trilha > Módulo > Aula)
+                        const { data: grandParentNode } = await supabase
+                            .from('study_nodes')
+                            .select('node_type')
+                            .eq('id', grandParentId)
+                            .single();
+
+                        if (grandParentNode?.node_type === 'custom_track') {
+                            path = `/trilhas/${grandParentId}`;
+                        } else {
+                            // Lógica legado para Trilhas Oficiais (T > M > A)
+                            const themeId = await findThemeAncestor(grandParentId);
+                            path = themeId ? `/trilha/${themeId}/${grandParentId}` : '/trilhas';
+                        }
+                    } else {
+                        // Se só tem pai (sem avô), pode ser um nó filho direto de tema ou algo assim
+                        const themeId = await findThemeAncestor(parentId);
+                        path = themeId ? `/trilha/${themeId}/${parentId}` : '/trilhas';
+                    }
+
+                    setRedirectPath(path);
                 } else {
-                    setRedirectPath('/trilha');
+                    setRedirectPath('/trilhas');
                 }
 
                 if (isMounted) setStatus('ready');
@@ -195,9 +232,12 @@ export function useQuizLogic(node_id: string) {
             const dbAns = String(correctOption?.id || "").toLowerCase();
             correct = userAns === dbAns;
         } else if (currentQ.q_type === 'fill_gap') {
-            const answer = currentQ.content.correct_answer.toLowerCase().trim();
+            // Defensive Check: Ensure correct_answer exists
+            const rawAnswer = currentQ.content.correct_answer || "";
+            const answer = String(rawAnswer).toLowerCase().trim();
+
             if (currentQ.content.options && currentQ.content.options.length > 0) {
-                correct = selectedOption === currentQ.content.correct_answer;
+                correct = selectedOption === rawAnswer; // Compare exact value (or normalized if needed)
             } else {
                 correct = inputValue.toLowerCase().trim() === answer;
             }
@@ -212,11 +252,12 @@ export function useQuizLogic(node_id: string) {
             setCorrectAnswersCount(prev => prev + 1);
         } else {
             const newLives = lives - 1;
-            setLives(newLives);
-            await deductHeart();
-            if (newLives <= 0) {
-                setTimeout(() => setShowSummary(true), 1500);
-            }
+            // COMMENTED OUT FOR INFINITE LIVES MODE
+            // setLives(newLives); 
+            // await deductHeart();
+            // if (newLives <= 0) {
+            //     setTimeout(() => setShowSummary(true), 1500);
+            // }
         }
     };
 
@@ -240,7 +281,8 @@ export function useQuizLogic(node_id: string) {
     // 6. Próxima Questão
     const handleNext = () => {
         if (currentQIndex < questions.length - 1) {
-            if (lives <= 0) return;
+            // COMMENTED OUT: Infinite Lives Mode
+            // if (lives <= 0) return;
             setCurrentQIndex(prev => prev + 1);
             setIsAnswered(false);
             setIsCorrect(false);

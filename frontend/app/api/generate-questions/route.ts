@@ -1,6 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
-import { generateQuestionsService } from "@/app/actions/generate-questions-service";
+import { getOrGenerateQuestions } from "@/app/actions/generate-questions-service";
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
     // 2. CALL SERVICE
     const body = await req.json();
-    const result = await generateQuestionsService({
+    const result = await getOrGenerateQuestions({
       ...body,
       userId: user.id
     });

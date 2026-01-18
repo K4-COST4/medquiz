@@ -7,12 +7,12 @@ import { ActionResponse } from "@/types/medai";
 // ============================================
 // CONFIGURAÇÃO OTIMIZADA PARA GEMINI SPECS
 // ============================================
-const CHUNK_SIZE = 6500;
-const OVERLAP = 650;
-const BATCH_SIZE = 10;
+const CHUNK_SIZE = 3800;
+const OVERLAP = 570;
+const BATCH_SIZE = 150;
 const MAX_RETRIES = 3;
-const MIN_CHUNK_LENGTH = 200;
-const MAX_CONTENT_LENGTH = 700_000;
+const MIN_CHUNK_LENGTH = 100;
+const MAX_CONTENT_LENGTH = 1_200_000;
 
 // ============================================
 // ESTIMATIVA DE TOKENS

@@ -11,7 +11,10 @@ import {
     MoreVertical,
     Play,
     RotateCw,
-    Trash2
+
+    Trash2,
+    Folder,
+    Wand2
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -32,6 +35,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { createDeck, getMyDecks, deleteDeck, type Deck } from "@/app/actions/flashcards"
+import { getUsageQuotas } from "@/app/actions/medai-core"
+import { cn } from "@/lib/utils"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -56,9 +61,13 @@ export default function FlashcardsDashboard() {
     const [newIsPublic, setNewIsPublic] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
     const [deckToDelete, setDeckToDelete] = useState<string | null>(null)
+    const [flashQuota, setFlashQuota] = useState<{ remaining: number } | null>(null);
 
     useEffect(() => {
         loadDecks()
+        getUsageQuotas().then(q => {
+            if (q) setFlashQuota(q.flashcard);
+        });
     }, [])
 
     const loadDecks = async () => {
@@ -133,60 +142,25 @@ export default function FlashcardsDashboard() {
                     </p>
                 </div>
 
-                <Dialog open={isNewDeckOpen} onOpenChange={setIsNewDeckOpen}>
-                    <DialogTrigger asChild>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:scale-105">
-                            <Plus size={18} className="mr-2" /> Novo Baralho
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                            <DialogTitle>Criar Novo Baralho</DialogTitle>
-                            <DialogDescription>
-                                Organize seus estudos por temas.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="title">Título</Label>
-                                <Input
-                                    id="title"
-                                    placeholder="Ex: Farmacologia - Antibióticos"
-                                    value={newTitle}
-                                    onChange={(e) => setNewTitle(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="desc">Descrição (Opcional)</Label>
-                                <Textarea
-                                    id="desc"
-                                    placeholder="Resumo do conteúdo..."
-                                    value={newDesc}
-                                    onChange={(e) => setNewDesc(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
-                                <div className="space-y-0.5">
-                                    <Label className="text-base">Baralho Público</Label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Outros estudantes poderão ver e clonar este baralho.
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={newIsPublic}
-                                    onCheckedChange={setNewIsPublic}
-                                />
-                            </div>
+                <div className="flex items-center gap-3">
+                    {flashQuota && (
+                        <div className={cn(
+                            "text-xs font-bold px-3 py-1.5 rounded-full border flex items-center gap-1.5",
+                            flashQuota.remaining > 0
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                : "bg-orange-50 text-orange-700 border-orange-100"
+                        )}>
+                            <Wand2 size={12} />
+                            {flashQuota.remaining > 0 ? "Criação c/ IA disponível" : "Limite IA atingido hoje"}
                         </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsNewDeckOpen(false)}>Cancelar</Button>
-                            <Button onClick={handleCreateDeck} disabled={isCreating} className="bg-indigo-600">
-                                {isCreating ? <RotateCw className="animate-spin mr-2" /> : null}
-                                Criar Baralho
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                    )}
+                    <Button
+                        onClick={() => router.push('/praticar/flashcard/novo')}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:scale-105"
+                    >
+                        <Plus size={18} className="mr-2" /> Novo Baralho
+                    </Button>
+                </div>
             </div>
 
             {/* SEARCH & FILTERS */}
@@ -200,7 +174,7 @@ export default function FlashcardsDashboard() {
                 />
             </div>
 
-            {/* DECKS GRID */}
+            {/* FILTERED LISTS */}
             {isLoading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                     {[1, 2, 3].map(i => (
@@ -214,73 +188,64 @@ export default function FlashcardsDashboard() {
                     </div>
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2">Sua biblioteca está vazia</h3>
                     <p className="text-slate-500 mb-8 text-center max-w-sm">
-                        Crie baralhos personalizados ou use a IA para gerar conteúdo de estudo instantaneamente.
+                        Crie baralhos ou use as trilhas para gerar estudos.
                     </p>
-                    <Button onClick={() => setIsNewDeckOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 hover:scale-105 transition-all shadow-lg shadow-indigo-200 dark:shadow-none">
+                    <Button onClick={() => router.push('/praticar/flashcard/novo')} className="bg-indigo-600 hover:bg-indigo-700">
                         <Plus className="mr-2 h-4 w-4" /> Criar Primeiro Baralho
                     </Button>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                    {/* NEW DECK CARD */}
-                    <Card
-                        className="group border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 cursor-pointer flex flex-col items-center justify-center p-6 text-center transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50"
-                        onClick={() => setIsNewDeckOpen(true)}
-                    >
-                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                            <Plus className="text-slate-400 group-hover:text-indigo-500 transition-colors" size={24} />
-                        </div>
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Criar Novo Baralho</h3>
-                        <p className="text-sm text-slate-500 mt-1">Personalize seu estudo</p>
-                    </Card>
+                <div className="space-y-12">
+                    {/* 1. POR MÓDULO (Decks de Trilha) */}
+                    {filteredDecks.some(d => d.module_id) && (
+                        <section>
+                            <h2 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <Folder size={18} className="text-violet-500" /> Por Módulo/Trilha
+                            </h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                                {filteredDecks.filter(d => d.module_id).map(deck => (
+                                    <DeckCard key={deck.id} deck={deck} router={router} onDelete={() => setDeckToDelete(deck.id)} />
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
-                    {filteredDecks.map((deck) => (
-                        <Card
-                            key={deck.id}
-                            className="group hover:border-indigo-300 dark:hover:border-indigo-800 transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer flex flex-col justify-between relative overflow-hidden"
-                            onClick={() => router.push(`/praticar/flashcard/${deck.id}`)}
-                        >
-                            <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            <CardHeader className="pb-2">
-                                <div className="flex justify-between items-start">
-                                    <Badge variant="secondary" className={`mb-2 ${deck.is_public ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
-                                        {deck.is_public ? <Globe size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
-                                        {deck.is_public ? "Público" : "Privado"}
-                                    </Badge>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 z-10"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setDeckToDelete(deck.id)
-                                        }}
-                                    >
-                                        <Trash2 size={16} />
-                                    </Button>
+                    {/* 2. POR AULA (Decks de Lição) */}
+                    {filteredDecks.some(d => d.lesson_id) && (
+                        <section>
+                            <h2 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <Play size={18} className="text-emerald-500" /> Por Aula
+                            </h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                                {filteredDecks.filter(d => d.lesson_id).map(deck => (
+                                    <DeckCard key={deck.id} deck={deck} router={router} onDelete={() => setDeckToDelete(deck.id)} />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* 3. MEUS BARALHOS (Soltos) */}
+                    <section>
+                        <h2 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                            <Library size={18} className="text-indigo-500" /> Meus Baralhos
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                            {/* "New Deck" Card always here */}
+                            <Card
+                                className="group border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 cursor-pointer flex flex-col items-center justify-center p-6 text-center transition-all hover:bg-slate-50 dark:hover:bg-slate-900/50 min-h-[220px]"
+                                onClick={() => router.push('/praticar/flashcard/novo')}
+                            >
+                                <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                    <Plus className="text-slate-400 group-hover:text-indigo-500 transition-colors" size={24} />
                                 </div>
-                                <CardTitle className="text-xl line-clamp-1 group-hover:text-indigo-600 transition-colors">
-                                    {deck.title}
-                                </CardTitle>
-                                <CardDescription className="line-clamp-2 min-h-[2.5rem]">
-                                    {deck.description || "Sem descrição."}
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="pb-2">
-                                <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                                        <RotateCw size={14} className="text-indigo-500" />
-                                        <span>{deck.card_count || 0} cards</span>
-                                    </div>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="pt-2">
-                                <Button className="w-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 hover:bg-indigo-600 hover:text-white border border-slate-200 dark:border-slate-800 group-hover:border-indigo-200 transition-all">
-                                    <Play size={16} className="mr-2 fill-current" /> Estudar
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
+                                <h3 className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Criar Novo Baralho</h3>
+                            </Card>
+
+                            {filteredDecks.filter(d => !d.lesson_id && !d.module_id).map(deck => (
+                                <DeckCard key={deck.id} deck={deck} router={router} onDelete={() => setDeckToDelete(deck.id)} />
+                            ))}
+                        </div>
+                    </section>
                 </div>
             )}
 
@@ -300,6 +265,56 @@ export default function FlashcardsDashboard() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </div >
     )
+
+}
+
+function DeckCard({ deck, router, onDelete }: { deck: Deck, router: any, onDelete: () => void }) {
+    return (
+        <Card
+            className="group hover:border-indigo-300 dark:hover:border-indigo-800 transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer flex flex-col justify-between relative overflow-hidden"
+            onClick={() => router.push(`/praticar/flashcard/${deck.id}`)}
+        >
+            <div className={`absolute top-0 left-0 w-1 h-full opacity-0 group-hover:opacity-100 transition-opacity ${deck.module_id ? "bg-violet-500" : deck.lesson_id ? "bg-emerald-500" : "bg-indigo-500"}`} />
+            <CardHeader className="pb-2">
+                <div className="flex justify-between items-start">
+                    <Badge variant="secondary" className={`mb-2 ${deck.is_public ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
+                        {deck.is_public ? <Globe size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
+                        {deck.is_public ? "Público" : "Privado"}
+                    </Badge>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 z-10"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onDelete()
+                        }}
+                    >
+                        <Trash2 size={16} />
+                    </Button>
+                </div>
+                <CardTitle className="text-xl line-clamp-1 group-hover:text-indigo-600 transition-colors">
+                    {deck.title}
+                </CardTitle>
+                <CardDescription className="line-clamp-2 min-h-[2.5rem]">
+                    {deck.description || "Sem descrição."}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="pb-2">
+                <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                        <RotateCw size={14} className="text-indigo-500" />
+                        <span>{deck.card_count || 0} cards</span>
+                    </div>
+                </div>
+            </CardContent>
+            <CardFooter className="pt-2">
+                <Button className="w-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 hover:bg-indigo-600 hover:text-white border border-slate-200 dark:border-slate-800 group-hover:border-indigo-200 transition-all">
+                    <Play size={16} className="mr-2 fill-current" /> Estudar
+                </Button>
+            </CardFooter>
+        </Card>
+    );
 }
