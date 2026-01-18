@@ -52,7 +52,7 @@ export default async function PlatformLayout({
         </div>
 
         {/* Padding bottom no mobile para não esconder conteúdo atrás da barra */}
-        <div className="pb-20 md:pb-8 min-h-screen">
+        <div className="pb-32 md:pb-8 min-h-screen">
           {children}
         </div>
       </main>

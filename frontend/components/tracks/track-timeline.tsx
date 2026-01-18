@@ -26,10 +26,10 @@ export function TrackTimeline({ modules, lessons }: TrackTimelineProps) {
     };
 
     return (
-        <div className="relative pl-4 md:pl-8 py-8 space-y-12">
+        <div className="relative pl-2 md:pl-8 py-8 space-y-12">
 
             {/* 1. LINHA VERTICAL CONTÍNUA */}
-            <div className="absolute left-[27px] md:left-[43px] top-4 bottom-4 w-1 bg-slate-200 rounded-full" />
+            <div className="absolute left-[19px] md:left-[43px] top-4 bottom-4 w-1 bg-slate-200 rounded-full" />
 
             {modules.map((module, index) => {
                 // Filter lessons for this module
@@ -48,7 +48,7 @@ export function TrackTimeline({ modules, lessons }: TrackTimelineProps) {
                         transition={{ delay: index * 0.1, duration: 0.5 }}
                         className="relative z-10"
                     >
-                        <div className="flex items-start gap-6 md:gap-8">
+                        <div className="flex items-start gap-3 md:gap-8">
 
                             {/* 2. NÓ (INDICADOR) */}
                             <div
@@ -70,7 +70,7 @@ export function TrackTimeline({ modules, lessons }: TrackTimelineProps) {
                             {/* 3. CARD DO MÓDULO */}
                             <div className="flex-1 min-w-0">
                                 {/* Conector Visual (Seta) */}
-                                <div className="absolute left-[34px] md:left-[50px] top-4 w-4 md:w-6 h-0.5 bg-slate-200 -z-10" />
+                                <div className="absolute left-[26px] md:left-[50px] top-4 w-4 md:w-6 h-0.5 bg-slate-200 -z-10" />
 
                                 <div
                                     className={cn(

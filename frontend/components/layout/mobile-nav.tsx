@@ -22,7 +22,7 @@ export function MobileNav({ streak }: MobileNavProps) {
   ]
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex justify-around items-center px-1 md:hidden z-50 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)] overflow-x-auto">
+    <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex justify-around items-center px-1 md:hidden z-40 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)] overflow-x-auto">
 
       {/* Itens de Navegação */}
       {navItems.map((item) => {
