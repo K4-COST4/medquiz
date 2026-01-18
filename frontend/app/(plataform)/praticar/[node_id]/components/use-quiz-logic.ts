@@ -306,32 +306,41 @@ export function useQuizLogic(node_id: string, mode: 'standard' | 'review' = 'sta
             const finalScorePct = totalQuestions > 0 ? Math.round((correctAnswersCount / totalQuestions) * 100) : 0;
             const passed = lives > 0 ? (isBoss ? finalScorePct >= 70 : true) : false;
 
-            // ... (Lógica de Banco de Dados Igual ao Original) ...
-            const promises = [];
-            if (score > 0) {
-                const { data: profile } = await supabase.from('profiles').select('xp').eq('id', user.id).single();
-                if (profile) promises.push(supabase.from('profiles').update({ xp: profile.xp + score }).eq('id', user.id));
-            }
-
-            if (passed) {
-                if (isBoss) {
-                    promises.push(supabase.rpc('complete_until_checkpoint', { p_boss_node_id: node_id }));
-                } else {
-                    const { data: curr } = await supabase.from('user_node_progress').select('current_level').eq('user_id', user.id).eq('node_id', node_id).maybeSingle();
-                    const newLevel = Math.min((curr?.current_level || 0) + 1, 3);
-                    promises.push(supabase.from('user_node_progress').upsert({ user_id: user.id, node_id, current_level: newLevel, last_practiced_at: new Date().toISOString() }, { onConflict: 'user_id, node_id' }));
+            // Lógica de Salvamento com Timeout
+            const saveOperation = async () => {
+                const promises = [];
+                if (score > 0) {
+                    const { data: profile } = await supabase.from('profiles').select('xp').eq('id', user.id).single();
+                    if (profile) promises.push(supabase.from('profiles').update({ xp: profile.xp + score }).eq('id', user.id));
                 }
-                promises.push(updateUserStreak());
-            }
 
-            await Promise.all(promises);
+                if (passed) {
+                    if (isBoss) {
+                        promises.push(supabase.rpc('complete_until_checkpoint', { p_boss_node_id: node_id }));
+                    } else {
+                        const { data: curr } = await supabase.from('user_node_progress').select('current_level').eq('user_id', user.id).eq('node_id', node_id).maybeSingle();
+                        const newLevel = Math.min((curr?.current_level || 0) + 1, 3);
+                        promises.push(supabase.from('user_node_progress').upsert({ user_id: user.id, node_id, current_level: newLevel, last_practiced_at: new Date().toISOString() }, { onConflict: 'user_id, node_id' }));
+                    }
+                    promises.push(updateUserStreak());
+                }
+
+                await Promise.all(promises);
+            };
+
+            // Race: Salvar vs Timeout de 10s
+            await Promise.race([
+                saveOperation(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout ao salvar progresso")), 10000))
+            ]);
 
             // Redireciona
             router.push(redirectPath);
             router.refresh();
 
         } catch (error) {
-            console.error("Erro ao finalizar:", error);
+            console.error("Erro ao finalizar (ou timeout):", error);
+            // Fallback agressivo: Redireciona mesmo se falhar o save
             window.location.href = redirectPath;
         }
     };

@@ -121,15 +121,26 @@ export const QuestionCard = ({
                                 <button onClick={onRevealAnswer} className="bg-violet-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-violet-200 hover:scale-105 transition-transform">Revelar Resposta</button>
                             </div>
                         ) : (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-3xl border-2 border-emerald-100 shadow-xl shadow-emerald-50 max-h-[60vh] overflow-y-auto">
-                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-2 sticky top-0 bg-white pb-2 z-10">Resposta Correta</h3>
-                                <div className="text-lg font-medium text-slate-800 mb-6 break-words">
-                                    <FormattedText text={question.content.answer} />
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl border-2 border-emerald-100 shadow-xl shadow-emerald-50 max-h-[60vh] flex flex-col overflow-hidden">
+                                {/* Header (Fixed) */}
+                                <div className="p-6 pb-2 shrink-0 bg-white z-10">
+                                    <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest">Resposta Correta</h3>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3 sticky bottom-0 bg-white pt-2 z-10 border-t border-slate-50">
-                                    <button onClick={() => onSelfEvaluate('hard')} className="p-3 bg-rose-100 text-rose-700 font-bold rounded-xl text-sm hover:bg-rose-200">Errei</button>
-                                    <button onClick={() => onSelfEvaluate('medium')} className="p-3 bg-amber-100 text-amber-700 font-bold rounded-xl text-sm hover:bg-amber-200">Difícil</button>
-                                    <button onClick={() => onSelfEvaluate('easy')} className="p-3 bg-emerald-100 text-emerald-700 font-bold rounded-xl text-sm hover:bg-emerald-200">Fácil</button>
+
+                                {/* Content (Scrollable) */}
+                                <div className="px-6 overflow-y-auto flex-1 min-h-0">
+                                    <div className="text-lg font-medium text-slate-800 break-words py-2">
+                                        <FormattedText text={question.content.answer} />
+                                    </div>
+                                </div>
+
+                                {/* Footer (Fixed) */}
+                                <div className="p-6 pt-2 shrink-0 bg-white border-t border-slate-50 z-10">
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <button onClick={() => onSelfEvaluate('hard')} className="p-3 bg-rose-100 text-rose-700 font-bold rounded-xl text-sm hover:bg-rose-200">Errei</button>
+                                        <button onClick={() => onSelfEvaluate('medium')} className="p-3 bg-amber-100 text-amber-700 font-bold rounded-xl text-sm hover:bg-amber-200">Difícil</button>
+                                        <button onClick={() => onSelfEvaluate('easy')} className="p-3 bg-emerald-100 text-emerald-700 font-bold rounded-xl text-sm hover:bg-emerald-200">Fácil</button>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
