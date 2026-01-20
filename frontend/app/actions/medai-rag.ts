@@ -39,8 +39,8 @@ export async function getEnhancedContext(topic: string, options: { usePubMed?: b
         try {
             const { data: documents } = await supabase.rpc('match_documents', {
                 query_embedding: textVector,
-                match_threshold: 0.4,
-                match_count: 5
+                match_threshold: 0.5,
+                match_count: 10
             });
 
             if (!documents || documents.length === 0) return "";

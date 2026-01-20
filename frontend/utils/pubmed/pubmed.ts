@@ -51,8 +51,8 @@ async function searchPubMedIds(query: string): Promise<string[]> {
     // Monta a query composta: (Termo) AND (Data) AND (Tipos)
     const finalQuery = `(${query}) AND (${dateFilter}) AND (${typeFilter})`;
 
-    // retmax=6 e sort=relevance
-    const url = `${getBaseUrl("esearch")}&term=${encodeURIComponent(finalQuery)}&retmax=6&sort=relevance`;
+    // retmax=5 e sort=relevance
+    const url = `${getBaseUrl("esearch")}&term=${encodeURIComponent(finalQuery)}&retmax=5&sort=relevance`;
 
     try {
         const res = await fetch(url);
