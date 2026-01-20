@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { Bot, Menu, Sheet as SheetIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -53,6 +54,10 @@ export default function MedAIPage() {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
 
+    // --- INITIAL QUERY (Dashboard Integration) ---
+    const processingRef = useRef<boolean>(false)
+    const searchParams = useSearchParams()
+
     // 1. Initial Load
     useEffect(() => {
         loadData()
@@ -66,11 +71,38 @@ export default function MedAIPage() {
         setSessions(loadedSessions)
         if (quotas) setUsesLeft(quotas.general.remaining)
 
-        // Select most recent if available
-        if (loadedSessions.length > 0 && !currentSessionId) {
+        // Check if we're coming from Dashboard with an initial query
+        // If so, DON'T auto-select the last session - let initialQuery effect handle it
+        const hasInitialQuery = searchParams.get('initialQuery')
+
+        // Select most recent if available AND no initial query pending
+        if (loadedSessions.length > 0 && !currentSessionId && !hasInitialQuery) {
             selectSession(loadedSessions[0].id)
         }
     }
+
+    // 1b. Process Initial Query from Dashboard
+    useEffect(() => {
+        const query = searchParams.get('initialQuery')
+
+        // If there's a query AND we haven't processed it yet (LOCK):
+        if (query && !processingRef.current) {
+            processingRef.current = true // Lock activated
+
+            // 1. Clean URL to prevent re-trigger on F5
+            window.history.replaceState({}, '', '/medai')
+
+            // 2. Reset UI state for fresh chat
+            setMessages([])
+            setCurrentSessionId(null)
+
+            // 3. Fire the message with a small delay to ensure UI is ready for animations
+            setTimeout(() => {
+                handleSend(query)
+            }, 100)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams])
 
     // 2. Select Session Logic
     const selectSession = async (id: string) => {

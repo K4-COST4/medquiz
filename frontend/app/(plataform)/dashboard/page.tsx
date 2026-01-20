@@ -1,430 +1,338 @@
-'use client'
-
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { getDashboardData } from "./actions";
 import {
-  Trophy,
-  Flame,
-  Target,
-  Zap,
-  Heart,
-  BookOpen,
-  Dna,
-  CalendarDays,
-  ArrowRight,
-  TrendingUp,
-  MoreHorizontal,
-  AlertTriangle,
-  Lock,
-  Calendar as CalendarIcon
-} from "lucide-react"
+    BookOpen,
+    Brain,
+    Calendar as CalendarIcon,
+    ChevronRight,
+    Flame,
+    GraduationCap,
+    Heart,
+    LayoutDashboard,
+    Library,
+    MoreHorizontal,
+    Play,
+    PlusCircle,
+    Sparkles,
+    Star,
+    Target,
+    Trophy,
+    Zap
+} from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+// import { Calendar } from "@/components/ui/calendar"; // Removed to avoid RSC error
+import { DashboardOmnibox } from "./dashboard-omnibox";
+import { redirect } from "next/navigation";
+// import { ptBR } from "date-fns/locale"; // Removed to avoid RSC error
+import { DashboardCalendar } from "./dashboard-calendar";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { Calendar } from "@/components/ui/calendar"
+export default async function DashboardPage() {
+    const { success, data, error } = await getDashboardData();
 
-import { getDashboardData, type DashboardData } from "./actions"
-
-// --- COMPONENTES AUXILIARES ---
-
-function StatsCard({ icon: Icon, value, label, subtext, colorClass, pending }: any) {
-  return (
-    <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all duration-300 relative overflow-hidden">
-      {pending && (
-        <div className="absolute inset-0 bg-slate-100/50 dark:bg-slate-900/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
-          <span className="bg-slate-200 dark:bg-slate-800 text-[10px] uppercase font-bold px-2 py-1 rounded text-slate-500">Em Breve</span>
-        </div>
-      )}
-      <CardContent className="p-4 flex items-center gap-4">
-        <div className={`p-3 rounded-xl ${colorClass} bg-opacity-10 dark:bg-opacity-20`}>
-          <Icon size={24} className={`text-current opacity-90`} />
-        </div>
-        <div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-black text-slate-800 dark:text-slate-100 tabular-nums">
-              {value}
-            </span>
-            {subtext && (
-              <span className="text-xs font-bold text-emerald-500 flex items-center">
-                {subtext}
-              </span>
-            )}
-          </div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            {label}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ActivityCalendar({ dates }: { dates: string[] }) {
-  // Dates comes as ["2024-01-10", "2024-01-09"]
-  // We need to convert strings to Date objects for the Calendar component
-  // Defensive check: Ensure dates is an array
-  const safeDates = Array.isArray(dates) ? dates : [];
-
-  const activeDates = safeDates.map(d => {
-    const [year, month, day] = d.split('-').map(Number);
-    return new Date(year, month - 1, day);
-  });
-
-  return (
-    <Card className="border-slate-200 dark:border-slate-800">
-      <CardHeader className="pb-2 border-b border-slate-100 dark:border-slate-800/50">
-        <CardTitle className="text-sm font-bold uppercase text-slate-500 flex items-center gap-2">
-          <CalendarIcon size={16} />
-          Constância
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-4 flex justify-center">
-        <Calendar
-          mode="multiple"
-          selected={[]} // Force empty selection to avoid default black style
-          className="rounded-md border-0 w-full flex justify-center p-0"
-          modifiers={{
-            active: activeDates
-          }}
-          modifiersClassNames={{
-            active: "bg-purple-600 text-white font-bold hover:bg-purple-700 rounded-full"
-          }}
-          classNames={{
-            day: "pointer-events-none" // Desabilita clique nos dias, mas mantém navegação do cabeçalho
-          }}
-        // Disable navigation to keep it simple or allow it
-        // showOutsideDays={false}
-        />
-      </CardContent>
-    </Card>
-  )
-}
-
-function HeartTimer({ targetDate }: { targetDate: string }) {
-  const [timeLeft, setTimeLeft] = useState<string | null>(null);
-
-  useEffect(() => {
-    const updateTimer = () => {
-      const now = new Date().getTime();
-      const target = new Date(targetDate).getTime();
-      const diff = target - now;
-
-      if (diff <= 0) {
-        setTimeLeft(null);
-        return;
-      }
-
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-      // Format: 1h 30m or 45m
-      if (hours > 0) {
-        setTimeLeft(`${hours}h ${minutes}m`);
-      } else {
-        setTimeLeft(`${minutes}m`);
-      }
-    };
-
-    updateTimer(); // Run immediately
-    const interval = setInterval(updateTimer, 60000); // Update every minute is enough for H:M
-
-    return () => clearInterval(interval);
-  }, [targetDate]);
-
-  if (!timeLeft) return null;
-
-  return (
-    <span className="text-xs font-bold text-rose-500 bg-rose-100 dark:bg-rose-900/30 px-2 py-0.5 rounded-full ml-1">
-      +1 em {timeLeft}
-    </span>
-  );
-}
-
-function Greeting() {
-  const hour = new Date().getHours()
-  let text = "Bom dia"
-  if (hour >= 12 && hour < 18) text = "Boa tarde"
-  else if (hour >= 18) text = "Boa noite"
-
-  return <span className="opacity-80">{text}</span>
-}
-
-// --- PÁGINA PRINCIPAL ---
-
-export default function DashboardPage() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [data, setData] = useState<DashboardData | null>(null)
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      setError(null)
-      const res = await getDashboardData()
-      if (res.success && res.data) {
-        setData(res.data)
-      } else {
-        setError(res.error || "Erro desconhecido ao carregar dados.")
-      }
-      setLoading(false)
-    }
-    load()
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-pulse">
-        <div className="h-10 w-48 bg-slate-200 dark:bg-slate-800 rounded-lg"></div>
-        <div className="grid grid-cols-3 gap-4 h-24">
-          <div className="bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
-          <div className="bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
-          <div className="bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-7xl mx-auto p-8 flex flex-col items-center justify-center min-h-[50vh] text-center space-y-4">
-        <div className="p-4 bg-red-100 text-red-600 rounded-full">
-          <AlertTriangle size={32} />
-        </div>
-        <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Não foi possível carregar o dashboard</h3>
-        <p className="text-slate-500 dark:text-slate-400 max-w-md bg-slate-100 dark:bg-slate-900 p-2 rounded font-mono text-xs">
-          {error}
-        </p>
-        <Button onClick={() => window.location.reload()}>Tentar Novamente</Button>
-      </div>
-    )
-  }
-
-  if (!data) return null
-
-  return (
-    <div className="max-w-7xl mx-auto p-4 md:p-8 pb-20">
-
-      {/* HEADER & GREETING */}
-      <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-slate-100 tracking-tight">
-            <Greeting />, {data.user.name.split(' ')[0]}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">
-            Vamos evoluir sua medicina hoje?
-          </p>
-        </div>
-      </header>
-
-      {/* STATS BAR */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <StatsCard
-          icon={Flame}
-          value={data.stats.streak}
-          label="Ofensiva (Dias)"
-          colorClass="text-orange-500 bg-orange-500"
-          subtext={data.stats.streak > 0 ? "Ativo" : "Comece!"}
-        />
-        <StatsCard
-          icon={Heart}
-          value={data.stats.hearts}
-          label="Vidas Disponíveis"
-          colorClass="text-rose-500 bg-rose-500"
-          subtext={
-            data.stats.hearts < 5 && data.stats.next_heart_at ? (
-              <HeartTimer targetDate={data.stats.next_heart_at} />
-            ) : (
-              data.stats.hearts < 5 ? "+1 em Breve" : "Cheio"
-            )
-          }
-        />
-        <StatsCard
-          icon={Trophy}
-          value={data.stats.elo}
-          label="Rating MedQuiz"
-          colorClass="text-yellow-500 bg-yellow-500"
-          pending={true} // Marked as Em Breve
-        />
-      </section>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-
-        {/* COLUNA PRINCIPAL (ESQUERDA + CENTRO) */}
-        <div className="xl:col-span-2 space-y-8">
-
-          {/* HERO SECTION */}
-          {data.is_new_user ? (
-            <Card className="border-0 bg-gradient-to-br from-indigo-600 to-violet-800 text-white shadow-xl overflow-hidden relative">
-              <div className="absolute top-0 right-0 p-12 opacity-10">
-                <Dna size={200} />
-              </div>
-              <CardContent className="p-8 md:p-12 relative z-10 flex flex-col gap-6 items-start">
-                <div>
-                  <Badge className="bg-white/20 hover:bg-white/30 text-indigo-100 border-0 mb-3 text-xs uppercase tracking-widest font-bold">
-                    Bem-vindo ao MedQuiz
-                  </Badge>
-                  <h2 className="text-3xl md:text-4xl font-bold mb-2">Sua jornada começa agora.</h2>
-                  <p className="text-indigo-100 text-lg max-w-lg leading-relaxed">
-                    Domine a medicina através de prática ativa. Escolha uma trilha e comece seus estudos de forma inteligente.
-                  </p>
-                </div>
-                <Button
-                  size="lg"
-                  className="bg-white text-indigo-700 hover:bg-indigo-50 font-bold h-14 px-8 text-base shadow-sm"
-                  onClick={() => router.push('/trilhas')}
-                >
-                  <Zap className="mr-2" size={20} fill="currentColor" />
-                  Iniciar Jornada
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/10 shadow-lg shadow-indigo-500/5">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-indigo-950 dark:text-indigo-100">
-                  <Target className="text-indigo-600" />
-                  Foco Atual
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {data.progress ? (
-                  <div className="flex flex-col md:flex-row gap-6 items-center">
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl w-full md:w-2/3 border border-indigo-100 dark:border-indigo-900 shadow-sm">
-                      <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-bold text-xl text-slate-800 dark:text-slate-100 line-clamp-1">
-                          {data.progress.last_module_title}
-                        </h3>
-                        <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
-                          {Math.round(data.progress.last_module_progress)}%
-                        </span>
-                      </div>
-                      <Progress value={data.progress.last_module_progress} className="h-3 bg-indigo-100 dark:bg-indigo-950" indicatorClassName="bg-indigo-600" />
-                      <p className="text-xs text-slate-400 mt-2 font-medium uppercase tracking-wider">
-                        Última atividade: {data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleDateString() : 'Hoje'}
-                      </p>
-                    </div>
-                    <div className="w-full md:w-1/3">
-                      <Button
-                        className="w-full h-14 text-lg font-bold bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 dark:shadow-none shadow-lg transition-all"
-                        onClick={() => router.push(`/praticar/${data.progress!.last_module_id}`)}
-                      >
-                        Continuar <ArrowRight className="ml-2" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-slate-500 mb-4">Você ainda não iniciou nenhum módulo recentemente.</p>
-                    <Button variant="outline" onClick={() => router.push('/trilhas')}>Ver Trilhas Disponíveis</Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* PRACTICE ACTIONS GRID (SHORTCUTS) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-            {/* Card 1: Flashcards (Antes Simulado Rápido) */}
-            <Card
-              className="bg-gradient-to-b from-white to-amber-50/50 dark:from-slate-900 dark:to-amber-950/10 border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-900 transition-colors cursor-pointer group"
-              onClick={() => router.push('/praticar/flashcard')} // MUDADO PARA FLASHCARDS
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg text-slate-700 dark:text-slate-200 group-hover:text-amber-600 transition-colors">Flashcards</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-500 mb-4">Memorize conceitos chave com repetição espaçada.</p>
-                <div className="w-8 h-8 rounded-full bg-amber-100 group-hover:bg-amber-500 dark:bg-amber-900/30 dark:group-hover:bg-amber-900 flex items-center justify-center pt-0 transition-all">
-                  <Zap size={16} className="text-amber-500 group-hover:text-white transition-colors" />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Card 2: Prova Oficial (Link Atualizado) */}
-            <Card
-              className="bg-gradient-to-b from-white to-blue-50/50 dark:from-slate-900 dark:to-blue-950/10 border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-900 transition-colors cursor-pointer group"
-              onClick={() => router.push('/praticar/provas')} // MUDADO PARA /praticar/provas
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg text-slate-700 dark:text-slate-200 group-hover:text-blue-600 transition-colors">Provas Oficiais</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-500 mb-4">Simule as condições reais de prova da sua faculdade.</p>
-                <div className="w-8 h-8 rounded-full bg-blue-100 group-hover:bg-blue-500 dark:bg-blue-900/30 dark:group-hover:bg-blue-900 flex items-center justify-center pt-0 transition-all">
-                  <BookOpen size={16} className="text-blue-500 group-hover:text-white transition-colors" />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Card 3: Revisar Erros (EM BREVE) */}
-            <Card
-              className="bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed group relative overflow-hidden"
-            // onClick desabilitado
-            >
-              <div className="absolute inset-0 z-10 bg-white/50 dark:bg-black/20 flex items-center justify-center">
-                <span className="text-[10px] font-bold uppercase bg-slate-200 dark:bg-slate-800 px-2 py-1 rounded">Em Breve</span>
-              </div>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg text-slate-500 dark:text-slate-400">Revisar Erros</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-400 mb-4">Fortaleça seus pontos fracos revendo questões que você errou.</p>
-                <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center pt-0">
-                  <Lock size={14} className="text-slate-400" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* COLUNA LATERAL (DIREITA) */}
-        <div className="xl:col-span-1 space-y-8">
-
-          {/* CALENDÁRIO REAL */}
-          <ActivityCalendar dates={data.activity_dates || []} />
-
-          {/* RANKING AMIGOS (EM BREVE) */}
-          <Card className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-slate-100/50 dark:bg-slate-900/50 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center text-center p-6">
-              <div className="bg-slate-200 dark:bg-slate-800 p-3 rounded-full mb-3">
-                <Trophy className="text-slate-400" size={24} />
-              </div>
-              <h3 className="font-bold text-slate-600 dark:text-slate-300">Ranking em Breve</h3>
-              <p className="text-xs text-slate-400 max-w-[200px] mt-1">Logo você poderá competir com seus amigos e ver quem domina o ranking.</p>
+    if (!success || !data) {
+        // Fallback or Redirect if auth fails (though middleware should catch it)
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <p className="text-destructive font-medium">{error || "Erro ao carregar dashboard"}</p>
             </div>
-            <CardHeader className="flex flex-row items-center justify-between pb-2 opacity-50">
-              <CardTitle className="text-sm font-bold uppercase text-slate-500">Ranking Amigos</CardTitle>
-              <MoreHorizontal size={16} className="text-slate-400" />
-            </CardHeader>
-            <CardContent className="p-0 opacity-50">
-              {[1, 2, 3].map((_, index) => (
-                <div key={index} className="flex items-center gap-3 p-4 border-b last:border-0">
-                  <div className="w-6 h-6 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
-                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse"></div>
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3 w-24 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
-                    <div className="h-2 w-16 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
-                  </div>
+        );
+    }
+
+    const { user, stats, progress, activeTracks, userDecks, is_new_user, activity_dates } = data;
+
+    return (
+        <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-4 md:p-8 font-sans">
+            <div className="max-w-7xl mx-auto space-y-8">
+
+                {/* 1. HEADER SEÇÃO (Boas vindas + Stats) */}
+                <header className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
+                            <LayoutDashboard className="text-indigo-500" />
+                            Olá, {user.name.split(' ')[0]}
+                        </h1>
+                        <p className="text-slate-500 dark:text-slate-400 mt-1">
+                            {is_new_user ? "Comece sua jornada de aprendizado hoje!" : "Pronto para continuar evoluindo?"}
+                        </p>
+                    </div>
+
+                    {/* Stats Cards (Compacto) */}
+                    <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <div className="flex flex-col items-center px-4 border-r border-slate-100 dark:border-slate-800">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ofensiva</span>
+                            <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-100">
+                                <Flame className="h-4 w-4 text-orange-500 fill-orange-500" />
+                                {stats.streak}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center px-4 border-r border-slate-100 dark:border-slate-800 opacity-70" title="Em Breve">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Vidas</span>
+                            <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-100">
+                                <Heart className="h-4 w-4 text-rose-500 fill-rose-500" />
+                                {stats.hearts}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center px-4 opacity-70" title="Em Breve">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Rating</span>
+                            <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-100">
+                                <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                {stats.elo}
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                {/* 2. LAYOUT "BENTO GRID" */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                    {/* COLUNA PRINCIPAL (Esquerda - 8 cols) */}
+                    <div className="lg:col-span-8 space-y-6">
+
+                        {/* A. MEDAI OMNIBOX */}
+                        <section className="bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 rounded-2xl p-6 md:p-8 text-white shadow-lg relative overflow-hidden group">
+                            {/* Background decoration */}
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-white/20 transition-all duration-700" />
+
+                            <div className="relative z-10 max-w-2xl">
+                                <div className="flex items-center gap-2 mb-3 text-indigo-100 font-medium">
+                                    <Sparkles className="h-4 w-4" />
+                                    <span>MedAI Assistant</span>
+                                </div>
+                                <h2 className="text-2xl font-bold mb-6">O que você quer aprender ou revisar hoje?</h2>
+
+                                <DashboardOmnibox />
+                            </div>
+                        </section>
+
+                        {/* B. MINHAS TRILHAS (Custom Tracks) */}
+                        <section>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                    <BookOpen className="h-5 w-5 text-indigo-500" />
+                                    Minhas Trilhas
+                                </h3>
+                                <Link href="/trilhas" className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                                    Ver todas <ChevronRight size={14} />
+                                </Link>
+                            </div>
+
+                            {activeTracks && activeTracks.length > 0 ? (
+                                <div className="space-y-3">
+                                    {activeTracks.slice(0, 5).map((track) => (
+                                        <div key={track.id} className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-800">
+                                            <div className="flex items-center gap-4">
+                                                <div className="h-12 w-12 rounded-lg bg-indigo-50 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                                    <Brain className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="font-bold text-slate-800 dark:text-slate-100 line-clamp-1 group-hover:text-indigo-600 transition-colors">
+                                                        {track.title}
+                                                    </h4>
+                                                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                                        <span className="flex items-center gap-1">
+                                                            <CalendarIcon className="h-3 w-3" />
+                                                            {new Date(track.last_accessed).toLocaleDateString()}
+                                                        </span>
+                                                        {track.progress > 0 && (
+                                                            <span className="font-medium text-indigo-600">{Math.round(track.progress)}% concluído</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 w-full sm:w-auto">
+                                                <div className="w-full sm:w-24 h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-indigo-500 rounded-full"
+                                                        style={{ width: `${track.progress}%` }}
+                                                    />
+                                                </div>
+                                                <Button asChild size="sm" className="shrink-0 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold hover:bg-indigo-600 dark:hover:bg-indigo-400 dark:hover:text-white transition-colors rounded-full px-6">
+                                                    <Link href={`/trilhas/${track.id}`}>
+                                                        {track.progress > 0 ? "Continuar" : "Iniciar"}
+                                                    </Link>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    <Button asChild variant="outline" className="w-full border-dashed border-2 py-6 hover:border-indigo-500 hover:text-indigo-600 dark:hover:border-indigo-400 dark:hover:text-indigo-400 transition-all text-slate-500">
+                                        <Link href="/trilhas/custom" className="flex items-center gap-2 justify-center">
+                                            <PlusCircle className="h-5 w-5" />
+                                            Criar Nova Trilha
+                                        </Link>
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Card className="border-dashed shadow-none bg-slate-50/50 dark:bg-slate-900/50">
+                                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                                        <div className="bg-white dark:bg-slate-800 p-3 rounded-full mb-3 shadow-sm">
+                                            <Brain className="h-8 w-8 text-slate-400" />
+                                        </div>
+                                        <h4 className="font-semibold text-slate-900 dark:text-slate-100">Nenhuma trilha personalizada</h4>
+                                        <p className="text-sm text-slate-500 max-w-xs mt-1 mb-4">Crie sua própria trilha de estudos com IA.</p>
+                                        <Button asChild variant="outline">
+                                            <Link href="/trilhas/custom">Criar Trilha</Link>
+                                        </Button>
+                                    </div>
+                                </Card>
+                            )}
+                        </section>
+
+                        {/* C. FLASHCARDS & QUICK ACTIONS (Grid 2 cols) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                            {/* C1. Flashcards */}
+                            <section className="flex flex-col h-full">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                        <Library className="h-5 w-5 text-violet-500" />
+                                        Meus Flashcards
+                                    </h3>
+                                    <Button asChild variant="ghost" size="sm" className="h-8 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 p-0 px-2">
+                                        <Link href="/praticar/flashcard">Gerenciar</Link>
+                                    </Button>
+                                </div>
+                                <div className="space-y-3 flex-1">
+                                    {userDecks && userDecks.length > 0 ? (
+                                        <>
+                                            {userDecks.slice(0, 3).map(deck => (
+                                                <Link key={deck.id} href={`/praticar/flashcard/${deck.id}`}>
+                                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex items-center justify-between hover:border-violet-500 dark:hover:border-violet-500 transition-colors cursor-pointer group">
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <div className="h-10 w-10 rounded-lg bg-violet-50 dark:bg-slate-800 flex items-center justify-center shrink-0 text-violet-600 font-bold text-xs ring-2 ring-transparent group-hover:ring-violet-100 transition-all">
+                                                                {deck.card_count}
+                                                            </div>
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-violet-600 transition-colors">
+                                                                {deck.title}
+                                                            </span>
+                                                        </div>
+                                                        <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-violet-500" />
+                                                    </div>
+                                                </Link>
+                                            ))}
+                                            {userDecks.length > 3 && (
+                                                <Link href="/praticar/flashcard" className="block text-center text-xs font-semibold text-slate-400 hover:text-violet-600 p-2">
+                                                    Ver todos ({userDecks.length})
+                                                </Link>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="h-full min-h-[150px] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl flex flex-col items-center justify-center p-4 text-center bg-slate-50/50">
+                                            <p className="text-sm text-slate-500 mb-3">Você ainda não criou nenhum baralho.</p>
+                                            <Button asChild size="sm" variant="secondary" className="text-xs">
+                                                <Link href="/praticar/flashcard">Criar Baralho</Link>
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* C2. Ações Rápidas */}
+                            <section className="flex flex-col h-full">
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
+                                    <Zap className="h-5 w-5 text-yellow-500" />
+                                    Ações Rápidas
+                                </h3>
+                                <div className="grid grid-rows-2 gap-3 h-full">
+                                    {/* Review Errors */}
+                                    <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-center opacity-70 cursor-not-allowed group">
+                                        <div className="absolute right-0 top-0 p-2">
+                                            <Badge variant="outline" className="text-[10px] bg-slate-50">Em Breve</Badge>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center">
+                                                <Target size={20} />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 dark:text-slate-200">Revisar Erros</h4>
+                                                <p className="text-xs text-slate-500">Foque no que precisa melhorar.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Mock Exams */}
+                                    <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col justify-center opacity-70 cursor-not-allowed group">
+                                        <div className="absolute right-0 top-0 p-2">
+                                            <Badge variant="outline" className="text-[10px] bg-slate-50">Em Breve</Badge>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center">
+                                                <GraduationCap size={20} />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 dark:text-slate-200">Simulado Oficial</h4>
+                                                <p className="text-xs text-slate-500">Treine com provas reais.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                        </div>
+
+                    </div>
+
+                    {/* COLUNA LATERAL (Direita - 4 cols) */}
+                    <div className="lg:col-span-4 space-y-6">
+
+                        {/* CALENDÁRIO */}
+                        <Card className="border-none shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
+                            <CardHeader className="bg-slate-50 dark:bg-slate-800/50 py-3 px-4 border-b border-slate-100 dark:border-slate-800">
+                                <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center bg-transparent">
+                                    <CalendarIcon className="mr-2 h-4 w-4" /> Constância
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-0 flex justify-center">
+                                {/* Real Calendar Component (Client Wrapper) */}
+                                <DashboardCalendar activityDates={activity_dates} />
+                            </CardContent>
+                        </Card>
+
+                        {/* RANKING (Coming Soon) */}
+                        <Card className="border-none shadow-sm bg-white dark:bg-slate-900 relative overflow-hidden">
+                            <div className="absolute inset-0 bg-slate-50/50 dark:bg-slate-900/80 z-10 flex flex-col items-center justify-center backdrop-blur-[1px]">
+                                <Badge variant="secondary" className="mb-2">Em Breve</Badge>
+                                <span className="text-sm font-medium text-slate-500">Ranking & Amigos</span>
+                            </div>
+                            <CardHeader className="py-3 px-4 border-b border-slate-100 dark:border-slate-800 opacity-50">
+                                <CardTitle className="text-sm font-semibold flex items-center">
+                                    <Trophy className="mr-2 h-4 w-4 text-yellow-500" /> Ranking
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-4 opacity-50">
+                                <div className="space-y-4">
+                                    {[1, 2, 3].map((pos) => (
+                                        <div key={pos} className="flex items-center gap-3">
+                                            <div className={`
+                                                h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold
+                                                ${pos === 1 ? 'bg-yellow-100 text-yellow-700' :
+                                                    pos === 2 ? 'bg-slate-200 text-slate-700' :
+                                                        'bg-orange-100 text-orange-700'}
+                                             `}>
+                                                {pos}
+                                            </div>
+                                            <div className="h-8 w-8 rounded-full bg-slate-200" />
+                                            <div className="h-3 w-20 bg-slate-100 rounded" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Footer decorative */}
+                        <div className="text-center">
+                            <p className="text-xs text-slate-400">© 2026 MedQuiz Platform</p>
+                        </div>
+                    </div>
+
                 </div>
-              ))}
-            </CardContent>
-          </Card>
 
-          {/* ADS SLOT */}
-          <div className="w-full h-[300px] bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col items-center justify-center text-slate-400 text-center p-4 relative overflow-hidden">
-            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at center, #94a3b8 1px, transparent 1px)', backgroundSize: '10px 10px' }}></div>
-            <span className="bg-slate-200 dark:bg-slate-800 text-[10px] px-2 py-1 rounded absolute top-2 right-2 font-bold uppercase tracking-wider">Ads</span>
-            <p className="text-sm font-bold">Espaço Publicitário</p>
-          </div>
-
+            </div>
         </div>
-
-      </div>
-    </div>
-  )
+    );
 }

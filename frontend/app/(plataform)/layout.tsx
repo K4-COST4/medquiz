@@ -52,8 +52,19 @@ export default async function PlatformLayout({
         </div>
 
         {/* Padding bottom no mobile para não esconder conteúdo atrás da barra */}
-        <div className="pb-32 md:pb-8 min-h-screen">
-          {children}
+        <div className="pb-32 md:pb-8 min-h-screen flex flex-col">
+          <div className="flex-1">
+            {children}
+          </div>
+
+          <footer className="py-6 text-center text-[10px] text-slate-400">
+            <p className="mb-1">© {new Date().getFullYear()} MedQuiz. Todos os direitos reservados.</p>
+            <div className="flex justify-center gap-3">
+              <a href="/legal/termos" className="hover:text-indigo-500 transition-colors">Termos de Uso</a>
+              <span>•</span>
+              <a href="/legal/privacidade" className="hover:text-indigo-500 transition-colors">Política de Privacidade</a>
+            </div>
+          </footer>
         </div>
       </main>
 

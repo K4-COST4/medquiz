@@ -5,7 +5,7 @@ import { askMedAI, getDailyUsesLeft } from "@/app/actions/medai-core";
 import { getEnhancedContext } from "@/app/actions/medai-rag";
 
 
-const DAILY_LIMIT = 5
+const DAILY_LIMIT = 10
 
 // --- GERENCIAMENTO DE SESSÕES ---
 

@@ -216,11 +216,15 @@ export default function CadastroPage() {
         </form>
 
         <div className="mt-8 text-center">
-          <p className="text-slate-400 font-bold text-sm">
+          <p className="text-slate-400 font-bold text-sm mb-6">
             Já tem uma conta?{' '}
             <Link href="/login" className="text-violet-600 hover:text-violet-700 hover:underline">
               Fazer Login
             </Link>
+          </p>
+
+          <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+            Ao criar sua conta, você concorda com os <Link href="/legal/termos" className="hover:text-violet-500 underline decoration-slate-300 underline-offset-2">Termos de Uso</Link> e <Link href="/legal/privacidade" className="hover:text-violet-500 underline decoration-slate-300 underline-offset-2">Política de Privacidade</Link> do MedQuiz.
           </p>
         </div>
       </motion.div>

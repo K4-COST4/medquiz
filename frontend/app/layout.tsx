@@ -26,7 +26,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="scroll-smooth" style={{ scrollBehavior: 'smooth' }}>
       {/* Removemos flex, sidebar e nav daqui. Agora é só o corpo puro. */}
-      <body className={`${inter.className} antialiased`}>
+      <body className={`${inter.className} antialiased`} suppressHydrationWarning={true}>
         {children}
         <Toaster />
       </body>

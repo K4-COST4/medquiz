@@ -21,6 +21,17 @@ export interface DashboardData {
         last_module_title: string | null;
         last_module_progress: number;
     } | null;
+    activeTracks: {
+        id: string;
+        title: string;
+        progress: number;
+        last_accessed: string;
+    }[];
+    userDecks: {
+        id: string;
+        title: string;
+        card_count: number;
+    }[];
     is_new_user: boolean;
     activity_dates: string[];
 }
@@ -32,10 +43,10 @@ export async function getDashboardData(): Promise<{ success: boolean; data?: Das
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) return { success: false, error: "Usuário não autenticado." };
 
-        // 1. Profile (Hearts, Basic Info)
+        // 1. Profile (Hearts, Basic Info, Streak source of truth)
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('full_name, avatar_url, hearts, last_heart_update, streak_count')
+            .select('full_name, avatar_url, hearts, last_heart_update, streak_count, last_study_date')
             .eq('id', user.id)
             .single();
 
@@ -44,15 +55,12 @@ export async function getDashboardData(): Promise<{ success: boolean; data?: Das
             return { success: false, error: `Erro Profile: ${profileError.message}` };
         }
 
-        // 2. Streak
-        const { data: streakData } = await supabase
-            .from('user_streaks')
-            .select('current_streak, last_activity_date')
-            .eq('user_id', user.id)
-            .maybeSingle();
+        // 2. Streak & Activity (Source: Profiles)
+        // We use profile.streak_count and profile.last_study_date as the single source of truth.
+        const currentStreak = profile.streak_count || 0;
+        const lastActivity = profile.last_study_date || null;
 
         // 3. User Statistics & Calendar Data
-        // Optimization: Fetch all history timestamps for calendar and count
         const { data: historyData, error: historyError } = await supabase
             .from('user_question_history')
             .select('answered_at')
@@ -62,15 +70,27 @@ export async function getDashboardData(): Promise<{ success: boolean; data?: Das
 
         const totalQuestions = historyData?.length || 0;
 
-        // Process Dates for Calendar (Unique YYYY-MM-DD)
-        const activityDates = Array.from(new Set(
-            (historyData || [])
-                .map(h => h.answered_at ? h.answered_at.split('T')[0] : null)
-                .filter(Boolean) as string[]
-        ));
+        // Process Dates for Calendar (Merge History + Streak Inference)
+        const historyDates = (historyData || [])
+            .map(h => h.answered_at ? h.answered_at.split('T')[0] : null)
+            .filter(Boolean) as string[];
 
-        // 4. Last Active Module
-        const { data: progressDataRaw, error: progressError } = await supabase
+        // INFERENCE: Use profile.last_study_date to reconstruct visual streak
+        const inferredDates: string[] = [];
+
+        if (currentStreak > 0 && profile.last_study_date) {
+            const lastDate = new Date(profile.last_study_date);
+            for (let i = 0; i < currentStreak; i++) {
+                const d = new Date(lastDate);
+                d.setDate(d.getDate() - i);
+                inferredDates.push(d.toISOString().split('T')[0]);
+            }
+        }
+
+        const activityDates = Array.from(new Set([...historyDates, ...inferredDates]));
+
+        // 4. Last Active Module (Legacy support)
+        const { data: progressDataRaw } = await supabase
             .from('user_node_progress')
             .select('node_id, current_level, updated_at, study_nodes(title)')
             .eq('user_id', user.id)
@@ -78,14 +98,47 @@ export async function getDashboardData(): Promise<{ success: boolean; data?: Das
             .limit(1)
             .maybeSingle();
 
-        // --- PROCESSING ---
+        // 5. Custom Tracks (My Studies)
+        // Fetch explicit custom tracks created by the user
+        const { data: customTracksRaw } = await supabase
+            .from('study_nodes')
+            .select('id, title, created_at, user_node_progress(current_level)')
+            .eq('user_id', user.id)
+            .eq('node_type', 'custom_track')
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        const activeTracks = (customTracksRaw || []).map((t: any) => {
+            // Calculate progress if available
+            const progressEntry = t.user_node_progress?.[0]; // Assuming 1:N but typically 1:1 per user
+            const currentLevel = progressEntry?.current_level || 0;
+            return {
+                id: t.id,
+                title: t.title,
+                progress: (currentLevel / 3) * 100, // Approximation
+                last_accessed: t.created_at // Fallback to created_at since updated_at is missing
+            };
+        });
+
+        // 6. User Decks (Correct Table: 'decks')
+        const { data: userDecksRaw } = await supabase
+            .from('decks') // Changed from 'flashcard_decks'
+            .select('id, title, flashcards(count)')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(4);
+
+        const userDecks = (userDecksRaw || []).map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            card_count: d.flashcards?.[0]?.count || 0 // Assuming simple count join
+        }));
 
         // --- PROCESSING ---
 
         const elo = 0;
-        // FIX: Prioritize profiles.streak_count as it is the one used in Layout/Sidebar
-        const streak = profile.streak_count || streakData?.current_streak || 0;
-        const lastActivity = streakData?.last_activity_date || null;
+        const streak = currentStreak;
+        // lastActivity is already set above from profile.last_study_date
 
         let formattedProgress = null;
         if (progressDataRaw) {
@@ -121,6 +174,8 @@ export async function getDashboardData(): Promise<{ success: boolean; data?: Das
                     next_heart_at: nextHeartAt
                 },
                 progress: formattedProgress,
+                activeTracks: activeTracks,
+                userDecks: userDecks,
                 is_new_user: totalQuestions === 0,
                 activity_dates: activityDates
             }

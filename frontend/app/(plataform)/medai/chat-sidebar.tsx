@@ -145,13 +145,13 @@ export function ChatSidebar({
             <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 z-10">
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
                     <span>Créditos Diários</span>
-                    <span className="font-medium">{usesLeft ?? '-'} / 5</span>
+                    <span className="font-medium">{usesLeft ?? '-'} / 10</span>
                 </div>
                 {/* Progress bar visual could act here */}
                 <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                         className={`h-full rounded-full transition-all duration-500 ${!usesLeft ? 'bg-red-500' : 'bg-indigo-500'}`}
-                        style={{ width: `${Math.min(100, ((usesLeft || 0) / 5) * 100)}%` }}
+                        style={{ width: `${Math.min(100, ((usesLeft || 0) / 10) * 100)}%` }}
                     />
                 </div>
             </div>
