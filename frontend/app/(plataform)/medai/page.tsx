@@ -6,7 +6,8 @@ import { Bot, Menu, Sheet as SheetIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -76,9 +77,10 @@ export default function MedAIPage() {
         const hasInitialQuery = searchParams.get('initialQuery')
 
         // Select most recent if available AND no initial query pending
-        if (loadedSessions.length > 0 && !currentSessionId && !hasInitialQuery) {
-            selectSession(loadedSessions[0].id)
-        }
+        // REMOVED BY REQUEST: Always start fresh unless initialQuery exists
+        // if (loadedSessions.length > 0 && !currentSessionId && !hasInitialQuery) {
+        //    selectSession(loadedSessions[0].id)
+        // }
     }
 
     // 1b. Process Initial Query from Dashboard
@@ -258,10 +260,10 @@ export default function MedAIPage() {
 
 
     return (
-        <div className="h-[calc(100vh-2rem)] flex bg-slate-50 dark:bg-slate-950 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm font-sans">
+        <div className="h-[calc(100dvh-0.1rem)] flex bg-slate-50 dark:bg-slate-950 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm font-sans md:pb-0 pb-16">
 
             {/* DESKTOP SIDEBAR */}
-            <div className="hidden md:block w-72 shrink-0">
+            <div className="hidden md:block w-84 shrink-0">
                 <ChatSidebar
                     sessions={sessions}
                     currentSessionId={currentSessionId}
@@ -276,34 +278,11 @@ export default function MedAIPage() {
             {/* MAIN CONTENT */}
             <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-950 relative">
 
-                {/* MOBILE HEADER */}
+                {/* MOBILE HEADER - REMOVED AS REQUESTED TO SAVE SPACE
                 <div className="md:hidden p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-950 z-20">
-                    <div className="flex items-center gap-2">
-                        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                            <SheetTrigger asChild>
-                                <Button variant="ghost" size="icon"><Menu /></Button>
-                            </SheetTrigger>
-                            <SheetContent side="left" className="p-0 w-80">
-                                <ChatSidebar
-                                    sessions={sessions}
-                                    currentSessionId={currentSessionId}
-                                    onSelectSession={selectSession}
-                                    onNewChat={handleNewChat}
-                                    onRenameClick={openRename}
-                                    onDeleteClick={openDelete}
-                                    usesLeft={usesLeft}
-                                />
-                            </SheetContent>
-                        </Sheet>
-                        <span className="font-bold text-indigo-600 flex items-center gap-2 text-lg">
-                            <Bot size={20} /> MedAI
-                        </span>
-                    </div>
-                    {/* Add visual indicator of credits on mobile header? Optional. */}
-                    <div className="text-xs font-medium text-slate-400">
-                        {usesLeft !== null ? `${usesLeft}/5` : ''}
-                    </div>
-                </div>
+                   ...
+                </div> 
+                */}
 
                 {/* CHAT AREA */}
                 <ChatArea
@@ -322,6 +301,20 @@ export default function MedAIPage() {
                     onDelete={() => {
                         if (currentSessionId) openDelete(currentSessionId)
                     }}
+                    // Mobile Menu Props
+                    mobileMenuOpen={mobileMenuOpen}
+                    setMobileMenuOpen={setMobileMenuOpen}
+                    sidebarContent={
+                        <ChatSidebar
+                            sessions={sessions}
+                            currentSessionId={currentSessionId}
+                            onSelectSession={selectSession}
+                            onNewChat={handleNewChat}
+                            onRenameClick={openRename}
+                            onDeleteClick={openDelete}
+                            usesLeft={usesLeft}
+                        />
+                    }
                 />
 
                 {/* --- HOISTED MODALS --- */}

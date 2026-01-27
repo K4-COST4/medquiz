@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ActionResponse } from "@/types/medai";
 
@@ -12,7 +12,7 @@ const OVERLAP = 570;
 const BATCH_SIZE = 150;
 const MAX_RETRIES = 3;
 const MIN_CHUNK_LENGTH = 100;
-const MAX_CONTENT_LENGTH = 1_200_000;
+const MAX_CONTENT_LENGTH = 1_000_000;
 
 // ============================================
 // ESTIMATIVA DE TOKENS
@@ -162,7 +162,7 @@ export async function addMedicalKnowledge(
     // ============================================
     // INICIALIZAÇÃO
     // ============================================
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const model = getGeminiModel();
 
     const cleanText = rawContent.replace(/\s+/g, " ").trim();

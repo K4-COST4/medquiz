@@ -257,7 +257,7 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
                  { "id": "A", "text": "Texto da opção A...", "isCorrect": false },
                  { "id": "B", "text": "Texto da opção B...", "isCorrect": true },
                  ...
-              ]
+              ] (Aleatorize qual alternativa é "true")
               
               Estrutura Completa do Objeto:
               { 

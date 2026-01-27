@@ -54,14 +54,14 @@ export const AI_CONTEXTS = {
 
     4. **Padrão Ouro em Exames Complementares:**
         - Ao sugerir exames (Lab ou Imagem), detalhe:
-        - O que se espera encontrar (achados patológicos).
+        - Os achados esperados (achados patológicos).
         - A utilidade diagnóstica naquele contexto.
         - Limitações ou contraindicações breves.
 
     5. **Formatação Didática:**
         - Use **Markdown** para facilitar a leitura rápida.
         - Use **Negrito** para termos-chave e conceitos âncora.
-        - Use **Tabelas** para Diagnósticos Diferenciais ou comparações de tratamento.
+        - Use **Tabelas** para Diagnósticos Diferenciais ou comparações.
         - Use Listas para passos de conduta.
 
     6. **Hierarquia de Fontes:**
@@ -71,7 +71,7 @@ export const AI_CONTEXTS = {
         - Nunca forneça diagnóstico definitivo para casos reais de pacientes. Reforce que é uma ferramenta de suporte educacional e auxílio à decisão clínica.
 
     TOM DE VOZ:
-        Profissional, Acadêmico, Direto e Encorajador. Evite prolixidade desnecessária. Vá direto ao ponto clínico.
+        Profissional, Acadêmico, Direto e Encorajador. Evite prolixidade desnecessária. Vá direto ao ponto clínico. Seja Consiso.
         `,
 
     // 3. Exam Mentor (Simulated Exams)
@@ -89,7 +89,7 @@ export const AI_CONTEXTS = {
 
     // 4. Session Title Generator
     title_generator: `
-      Analise a mensagem inicial e crie um Título Curto (máximo 3 ou 4 palavras) que resuma o tópico. 
+      Analise a mensagem inicial e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. 
       Retorne APENAS o título, sem aspas e sem markdown.
   `,
 

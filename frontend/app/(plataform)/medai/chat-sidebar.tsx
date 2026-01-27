@@ -98,7 +98,7 @@ export function ChatSidebar({
                                                     />
                                                 )}
 
-                                                <div className="flex items-center gap-3 overflow-hidden flex-1 pl-2 min-w-0">
+                                                <div className="flex items-center gap-2 overflow-hidden flex-1 pl-2 min-w-0">
                                                     {/* Icon varies? No, std chat icon */}
                                                     <MessageSquare size={16} className="shrink-0 opacity-70" />
                                                     <span className="truncate">{session.title || "Nova Conversa"}</span>

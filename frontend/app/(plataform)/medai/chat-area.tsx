@@ -2,7 +2,9 @@
 
 import { useRef, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Send, Bot, User, Loader2, StopCircle, ArrowDown, MoreVertical, Pencil, Trash2, Paperclip, X } from "lucide-react"
+import { Bot, User, ArrowDown, Pencil, Trash2, X, Copy, Check } from "lucide-react"
+
+import { ChatInput } from "./chat-input"
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import remarkGfm from 'remark-gfm'
@@ -19,6 +21,9 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
+import { Menu } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
 interface ChatMessage {
@@ -38,6 +43,10 @@ interface ChatAreaProps {
     onRename?: () => void
     onDelete?: () => void
     isSessionActive: boolean
+    // New Mobile Menu Props
+    mobileMenuOpen?: boolean
+    setMobileMenuOpen?: (open: boolean) => void
+    sidebarContent?: React.ReactNode
 }
 
 const SUGGESTIONS = [
@@ -57,15 +66,38 @@ export function ChatArea({
     chatTitle,
     onRename,
     onDelete,
-    isSessionActive
+    isSessionActive,
+    mobileMenuOpen,
+    setMobileMenuOpen,
+    sidebarContent
 }: ChatAreaProps) {
     const scrollRef = useRef<HTMLDivElement>(null)
-    const textareaRef = useRef<HTMLTextAreaElement>(null)
-    const fileInputRef = useRef<HTMLInputElement>(null)
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+    const [copiedId, setCopiedId] = useState<number | null>(null)
 
-    // Attachment State
-    const [attachment, setAttachment] = useState<{ name: string, base64: string, type: string } | null>(null)
+    const handleCopy = async (content: string, idx: number) => {
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(content)
+            } else {
+                // Fallback for http/mobile dev environments
+                const textArea = document.createElement("textarea")
+                textArea.value = content
+                textArea.style.position = "fixed"
+                textArea.style.left = "-9999px"
+                textArea.style.top = "0"
+                document.body.appendChild(textArea)
+                textArea.focus()
+                textArea.select()
+                document.execCommand('copy')
+                document.body.removeChild(textArea)
+            }
+            setCopiedId(idx)
+            setTimeout(() => setCopiedId(null), 2000)
+        } catch (err) {
+            console.error("Failed to copy", err)
+        }
+    }
 
     // Auto-scroll logic
     useEffect(() => {
@@ -82,60 +114,37 @@ export function ChatArea({
         setShouldAutoScroll(isAtBottom)
     }
 
-    const handleSubmit = () => {
-        if ((!input.trim() && !attachment) || isLoading) return
-
-        onSend(input, attachment?.base64) // Pass attachment
-        setAttachment(null) // Clear attachment
-        setShouldAutoScroll(true)
-    }
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSubmit()
-        }
-    }
-
-    // File Handling
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-
-        if (file.size > 5 * 1024 * 1024) {
-            alert("Arquivo muito grande (Máx 5MB)")
-            return
-        }
-
-        const reader = new FileReader()
-        reader.onload = (event) => {
-            const base64 = event.target?.result as string
-            setAttachment({
-                name: file.name,
-                type: file.type,
-                base64: base64
-            })
-        }
-        reader.readAsDataURL(file)
-
-        // Reset input value to allow selecting same file again
-        e.target.value = ''
-    }
-
-    const removeAttachment = () => setAttachment(null)
+    // Handlers removed - logic moved to ChatInput
 
 
     return (
         <div className="flex flex-col h-full bg-white dark:bg-slate-950 relative">
 
-            {/* CHAT HEADER (Only if session is active) */}
-            {isSessionActive && (
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm z-10 sticky top-0">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                        <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
-                            {chatTitle || "Nova Conversa"}
-                        </span>
+            {/* CHAT HEADER (Always visible now for mobile menu access) */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm z-10 sticky top-0">
+                <div className="flex items-center gap-2 overflow-hidden">
+                    {/* MOBILE MENU TRIGGER (Only visible on mobile) */}
+                    <div className="md:hidden shrink-0">
+                        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+                            <SheetTrigger asChild>
+                                <Button variant="ghost" size="icon" className="-ml-2"><Menu size={20} /></Button>
+                            </SheetTrigger>
+                            <SheetContent side="left" className="p-0 w-80">
+                                <VisuallyHidden>
+                                    <SheetTitle>Menu de Navegação</SheetTitle>
+                                </VisuallyHidden>
+                                {sidebarContent}
+                            </SheetContent>
+                        </Sheet>
                     </div>
+
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
+                        {chatTitle || "Nova Conversa"}
+                    </span>
+                </div>
+
+                {/* ACTIONS (Only if session is active) */}
+                {isSessionActive && (
                     <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" onClick={onRename} title="Renomear">
                             <Pencil size={18} className="text-slate-400 hover:text-indigo-600" />
@@ -144,8 +153,8 @@ export function ChatArea({
                             <Trash2 size={18} className="text-slate-400 hover:text-red-600" />
                         </Button>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
             {/* MESSAGES AREA */}
             <div
@@ -155,7 +164,7 @@ export function ChatArea({
             >
                 {messages.length === 0 ? (
                     // EMPTY STATE
-                    <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center px-4 animate-in fade-in zoom-in duration-300">
+                    <div className="h-full flex flex-col items-center justify-center max-w-4xl mx-auto text-center px-4 animate-in fade-in zoom-in duration-300">
                         <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
                             <Bot size={32} className="text-indigo-600" />
                         </div>
@@ -166,7 +175,7 @@ export function ChatArea({
                             Estou pronto para ajudar. Escolha uma sugestão ou digite sua dúvida clínica.
                         </p>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                        <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                             {SUGGESTIONS.map((s) => (
                                 <button
                                     key={s.title}
@@ -185,7 +194,7 @@ export function ChatArea({
                     </div>
                 ) : (
                     // MESSAGES
-                    <div className="max-w-3xl mx-auto space-y-6 pb-4">
+                    <div className="max-w-5xl mx-auto space-y-6 pb-4">
                         <AnimatePresence initial={false}>
                             {messages.map((msg, idx) => (
                                 <motion.div
@@ -203,6 +212,7 @@ export function ChatArea({
                                     )}
 
                                     <div className={`
+                                        group relative
                                         max-w-[85%] md:max-w-[80%] rounded-2xl p-4 shadow-sm text-sm leading-relaxed
                                         ${msg.role === 'user'
                                             ? 'bg-indigo-600 text-white rounded-tr-none'
@@ -213,6 +223,25 @@ export function ChatArea({
                                                 <ReactMarkdown
                                                     remarkPlugins={[remarkMath, remarkGfm]}
                                                     rehypePlugins={[rehypeKatex]}
+                                                    components={{
+                                                        table: ({ node, ...props }) => (
+                                                            <div className="overflow-x-auto w-full my-4 rounded-lg border border-slate-200 dark:border-slate-800">
+                                                                <table className="w-full text-sm text-left border-collapse" {...props} />
+                                                            </div>
+                                                        ),
+                                                        thead: ({ node, ...props }) => (
+                                                            <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase text-slate-700 dark:text-slate-400 font-medium" {...props} />
+                                                        ),
+                                                        th: ({ node, ...props }) => (
+                                                            <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap" {...props} />
+                                                        ),
+                                                        td: ({ node, ...props }) => (
+                                                            <td className="px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 min-w-[150px]" {...props} />
+                                                        ),
+                                                        tr: ({ node, ...props }) => (
+                                                            <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors" {...props} />
+                                                        )
+                                                    }}
                                                 >
                                                     {msg.content}
                                                 </ReactMarkdown>
@@ -220,6 +249,20 @@ export function ChatArea({
                                         ) : (
                                             <p className="whitespace-pre-wrap">{msg.content}</p>
                                         )}
+
+                                        {/* COPY BUTTON */}
+                                        <button
+                                            onClick={() => handleCopy(msg.content, idx)}
+                                            className={`
+                                                absolute -bottom-6 right-0 p-1.5 rounded-full 
+                                                text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400
+                                                opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all
+                                                ${copiedId === idx ? 'text-green-500 hover:text-green-600' : ''}
+                                            `}
+                                            title="Copiar texto"
+                                        >
+                                            {copiedId === idx ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
                                     </div>
 
                                     {msg.role === 'user' && (
@@ -273,87 +316,11 @@ export function ChatArea({
                 </button>
             )}
 
-            {/* INPUT AREA */}
-            <div className="p-4 bg-white dark:bg-slate-950/80 backdrop-blur-sm border-t border-slate-100 dark:border-slate-800">
-
-                {/* Visual Attachment Badge */}
-                <AnimatePresence>
-                    {attachment && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.9 }}
-                            className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-lg p-2 mb-2 flex items-center justify-between shadow-sm max-w-max"
-                        >
-                            <div className="flex items-center gap-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">
-                                <span className="p-1 bg-white dark:bg-slate-950 rounded border border-indigo-100 dark:border-indigo-900">
-                                    {attachment.type.includes('image') ? '🖼️' : '📄'}
-                                </span>
-                                <span className="truncate max-w-[200px]">{attachment.name}</span>
-                            </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 ml-2 hover:bg-white/50 dark:hover:bg-slate-950/50 rounded-full text-indigo-400 hover:text-red-500"
-                                onClick={removeAttachment}
-                            >
-                                <X size={12} />
-                            </Button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="max-w-3xl mx-auto relative rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all flex items-end">
-
-                    {/* File Input (Hidden) & Trigger */}
-                    <input
-                        type="file"
-                        accept=".pdf,image/*"
-                        className="hidden"
-                        ref={fileInputRef}
-                        onChange={handleFileSelect}
-                    />
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 mb-1 ml-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800"
-                        title="Anexar arquivo (PDF ou Imagem)"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isLoading || (usesLeft !== null && usesLeft <= 0)}
-                    >
-                        <Paperclip size={18} />
-                    </Button>
-
-                    <Textarea
-                        ref={textareaRef}
-                        placeholder={usesLeft && usesLeft > 0 ? "Pergunte ao MedAI..." : "Limite diário atingido"}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        disabled={isLoading || (usesLeft !== null && usesLeft <= 0)}
-                        className="bg-transparent border-none focus-visible:ring-0 resize-none min-h-[50px] max-h-[200px] text-base py-3 pr-12 flex-1"
-                        rows={1}
-                        onInput={(e) => {
-                            const target = e.target as HTMLTextAreaElement;
-                            target.style.height = 'auto';
-                            target.style.height = `${target.scrollHeight}px`;
-                        }}
-                    />
-                    <div className="absolute right-2 bottom-2">
-                        <Button
-                            onClick={handleSubmit}
-                            disabled={isLoading || (!input.trim() && !attachment) || (usesLeft !== null && usesLeft <= 0)}
-                            size="icon"
-                            className={`h-9 w-9 transition-all ${input.trim() || attachment ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-400'}`}
-                        >
-                            {isLoading ? <StopCircle size={18} className="animate-pulse" /> : <Send size={18} />}
-                        </Button>
-                    </div>
-                </div>
-                <div className="max-w-3xl mx-auto mt-2 text-center text-xs text-slate-400">
-                    MedAI pode cometer erros. Verifique informações médicas críticas.
-                </div>
-            </div>
+            <ChatInput
+                onSend={onSend}
+                isLoading={isLoading}
+                usesLeft={usesLeft}
+            />
         </div>
     )
 }

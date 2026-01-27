@@ -32,12 +32,10 @@ export const QuizHeader = ({ currentQIndex, totalQuestions, difficulty, lives, o
                 `}>
                         {difficulty === 'easy' ? 'Fácil' : difficulty === 'medium' ? 'Médio' : 'Difícil'}
                     </div>
-                    <div className="flex items-center gap-1 text-rose-500 font-black ml-2">
-                        <Heart fill="currentColor" size={20} />
-                        <span>{lives}</span>
-                    </div>
+
                 </div>
             </div>
         </header>
     );
 };
+// No espaço entre os divs havia o item do coração
