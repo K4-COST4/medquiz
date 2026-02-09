@@ -30,7 +30,7 @@ function getGeminiModel() {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    return genAI.getGenerativeModel({ model: "embedding-001" });
+    return genAI.getGenerativeModel({ model: "gemini-embedding-001" });
 }
 
 // ============================================

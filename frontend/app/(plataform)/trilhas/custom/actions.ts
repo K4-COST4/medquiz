@@ -8,10 +8,27 @@ import { revalidatePath } from "next/cache";
 
 // --- VALIDATION SCHEMAS ---
 
+// Request payload schema using discriminated union for type safety
+const TrackGenerationPayloadSchema = z.discriminatedUnion("mode", [
+    z.object({
+        mode: z.literal("OBJECTIVES"),
+        user_input: z.array(z.string().min(1, "Objetivo não pode ser vazio")).min(1, "Pelo menos um objetivo é necessário")
+    }),
+    z.object({
+        mode: z.literal("FREE_TEXT"),
+        user_input: z.string().min(1, "Texto não pode ser vazio")
+    })
+]);
+
+type TrackGenerationPayload = z.infer<typeof TrackGenerationPayloadSchema>;
+
+// Response schemas with enhanced validation
 const LessonSchema = z.object({
     title: z.string(),
     ai_context: z
         .string()
+        .min(100, "ai_context muito curto (mín 100 caracteres)")
+        .max(1500, "ai_context muito longo (máx 1500 caracteres)")
         .describe("Instrução técnica detalhada para geração de questões"),
     icon_suggestion: z.string().optional().default("book-open"),
 });
@@ -20,13 +37,13 @@ const ModuleSchema = z.object({
     title: z.string(),
     description: z.string().optional(),
     icon_suggestion: z.string().optional().default("folder"),
-    lessons: z.array(LessonSchema),
+    lessons: z.array(LessonSchema).min(1, "Módulo deve ter pelo menos 1 aula"),
 });
 
 const TrackSchema = z.object({
     track_title: z.string(),
     track_description: z.string().optional(),
-    modules: z.array(ModuleSchema),
+    modules: z.array(ModuleSchema).min(1, "Trilha deve ter pelo menos 1 módulo"),
 });
 
 // --- HELPER FUNCTIONS ---
@@ -64,7 +81,7 @@ function generateSlug(title: string): string {
 
 // --- MAIN ACTION ---
 
-export async function generateCustomTrack(userInput: string | string[]) {
+export async function generateCustomTrack(userInput: string | string[] | TrackGenerationPayload) {
     const supabase = await createClient();
 
     // 1. Autenticação Step
@@ -76,10 +93,60 @@ export async function generateCustomTrack(userInput: string | string[]) {
         return { success: false, message: "Usuário não autenticado." };
     }
 
+    // 2. Payload Validation with Backward Compatibility
+    let validatedPayload: TrackGenerationPayload;
+
+    if (typeof userInput === 'object' && userInput !== null && 'mode' in userInput) {
+        // New format - validate directly
+        try {
+            validatedPayload = TrackGenerationPayloadSchema.parse(userInput);
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return { success: false, message: `Erro de validação: ${error.issues[0].message}` };
+            }
+            return { success: false, message: "Payload inválido." };
+        }
+    } else {
+        // Legacy format - auto-convert with telemetry
+        console.warn("⚠️ LEGACY FORMAT DETECTED - Auto-converting to new format");
+
+        // Log telemetry (optional - only if table exists)
+        try {
+            await supabase.from('api_telemetry').insert({
+                user_id: user.id,
+                endpoint: 'generateCustomTrack',
+                format_version: 'legacy',
+                timestamp: new Date().toISOString(),
+                metadata: { input_type: Array.isArray(userInput) ? 'array' : 'string' }
+            });
+        } catch (telemetryError) {
+            // Silently fail telemetry - don't block the request
+            console.warn("Telemetry logging failed (table may not exist):", telemetryError);
+        }
+
+        // Convert to new format
+        if (Array.isArray(userInput)) {
+            validatedPayload = { mode: "OBJECTIVES", user_input: userInput };
+        } else {
+            validatedPayload = { mode: "FREE_TEXT", user_input: userInput as string };
+        }
+
+        // Validate converted payload
+        try {
+            validatedPayload = TrackGenerationPayloadSchema.parse(validatedPayload);
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return { success: false, message: `Erro de validação: ${error.issues[0].message}` };
+            }
+            return { success: false, message: "Payload inválido após conversão." };
+        }
+    }
+
     try {
-        // 2. Embedding & Busca Vetorial (RAG)
-        // Se for lista, usamos o join para gerar embedding geral
-        const textForEmbedding = Array.isArray(userInput) ? userInput.join(" ") : userInput;
+        // 3. Embedding & Busca Vetorial (RAG)
+        const textForEmbedding = Array.isArray(validatedPayload.user_input)
+            ? validatedPayload.user_input.join(" ")
+            : validatedPayload.user_input;
         const embedding = await generateEmbedding(textForEmbedding);
 
         let ragContext = "";
@@ -87,7 +154,7 @@ export async function generateCustomTrack(userInput: string | string[]) {
             // Busca documentos similares na knowledge base
             const { data: documents } = await supabase.rpc("match_documents", {
                 query_embedding: embedding,
-                match_threshold: 0.5, // 0.5 é um bom balanço entre semelhança e conteúdo
+                match_threshold: 0.5,
                 match_count: 10,
             });
 
@@ -98,29 +165,25 @@ export async function generateCustomTrack(userInput: string | string[]) {
             }
         }
 
-        // 3. Geração de Trilha com Gemini (MedAI)
-
-        let formattedInput = "";
-        if (Array.isArray(userInput)) {
-            formattedInput = "LISTA DE OBJETIVOS ESTRUTURADOS:\n" + userInput.map((item, idx) => `${idx + 1}. ${item}`).join("\n");
-        } else {
-            formattedInput = "TEXTO LIVRE:\n" + userInput;
-        }
-
+        // 4. Geração de Trilha com Gemini (MedAI)
+        // Separate system context from user input for prompt injection defense
         const systemArgs = `
 CONTEXTO RAG RECUPERADO (Base de Conhecimento):
 ${ragContext || "Nenhum contexto específico encontrado na base interna."}
+    `;
 
-OBJETIVO DO ALUNO:
-${formattedInput}
+        // User message with explicit mode and input
+        const userMessage = `
+mode: ${validatedPayload.mode}
+user_input: ${JSON.stringify(validatedPayload.user_input)}
     `;
 
         // Chamada à IA
         const aiResponse = await askMedAI({
             contextKey: "syllabus_generator",
-            userMessage: `Elabore uma trilha completa baseada no seguinte input: \n${formattedInput}`,
+            userMessage: userMessage,
             systemInstructionArgs: systemArgs,
-            responseType: "json", // Solicita JSON mode
+            responseType: "json",
             modelName: "gemini-3-pro-preview",
             quotaType: 'track'
         });
@@ -139,8 +202,10 @@ ${formattedInput}
             }
         }
 
-        // 4. Tratamento e Validação da Resposta
+        // 5. Tratamento e Validação da Resposta com Auto-Repair
         let trackData;
+        let repairAttempted = false;
+
         try {
             if (aiResponse.success && aiResponse.data) {
                 // Se askMedAI já parseou com sucesso
@@ -153,12 +218,39 @@ ${formattedInput}
             // Validação Zod (Garante estrutura correta)
             trackData = TrackSchema.parse(trackData);
         } catch (parseError) {
-            console.error("Erro de Parse/Validação JSON:", parseError);
-            // Se falhar aqui, aí sim é erro fatal
-            throw new Error("A IA gerou um formato inválido. Tente novamente sendo mais específico.");
+            console.error("Erro de Parse/Validação JSON (primeira tentativa):", parseError);
+
+            // AUTO-REPAIR: Tenta pedir ao modelo para consertar o JSON
+            if (!repairAttempted) {
+                repairAttempted = true;
+                console.warn("🔧 Tentando auto-repair do JSON...");
+
+                const repairResponse = await askMedAI({
+                    contextKey: "syllabus_generator",
+                    userMessage: `Conserte o JSON abaixo para que seja válido e siga estritamente o schema. Não altere o conteúdo, apenas corrija a estrutura:\n\n${aiResponse.message}`,
+                    responseType: "json",
+                    modelName: "gemini-3-flash-preview", // Modelo mais rápido para repair
+                    skipQuota: true, // Não contar como uso adicional
+                    quotaType: 'unlimited'
+                });
+
+                if (repairResponse.success && repairResponse.data) {
+                    try {
+                        trackData = TrackSchema.parse(repairResponse.data);
+                        console.log("✅ Auto-repair bem-sucedido");
+                    } catch (repairParseError) {
+                        console.error("Auto-repair falhou:", repairParseError);
+                        throw new Error("A IA gerou um formato inválido mesmo após tentativa de correção. Tente novamente sendo mais específico.");
+                    }
+                } else {
+                    throw new Error("A IA gerou um formato inválido. Tente novamente sendo mais específico.");
+                }
+            } else {
+                throw new Error("A IA gerou um formato inválido. Tente novamente sendo mais específico.");
+            }
         }
 
-        // 5. Persistência no Banco de Dados (Transação Simulada com Rollback)
+        // 6. Persistência no Banco de Dados (Transação Simulada com Rollback)
         let trackId: string | null = null;
 
         try {

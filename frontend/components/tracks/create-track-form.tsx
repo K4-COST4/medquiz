@@ -50,27 +50,27 @@ export function CreateTrackForm() {
     };
 
     const handleGenerate = () => {
-        let payload: string | string[];
-
+        // Validate input based on mode
         if (mode === "free") {
             if (!freeText.trim()) {
                 toast.error("Por favor, descreva seus objetivos de estudo.");
                 return;
             }
-            payload = freeText;
         } else {
-            // Recorta strings vazias
             const validObjectives = objectives.filter(o => o.trim() !== "");
             if (validObjectives.length === 0) {
                 toast.error("Adicione pelo menos um objetivo válido.");
                 return;
             }
-            payload = validObjectives;
         }
 
         startTransition(async () => {
             try {
-                // Backend agora aceita string ou string[]
+                // Construct new payload with explicit mode
+                const payload = mode === "free"
+                    ? { mode: "FREE_TEXT" as const, user_input: freeText }
+                    : { mode: "OBJECTIVES" as const, user_input: objectives.filter(o => o.trim() !== "") };
+
                 const result = await generateCustomTrack(payload);
 
                 if (result.success && result.track_id) {
