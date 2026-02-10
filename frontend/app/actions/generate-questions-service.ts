@@ -3,6 +3,23 @@ import { createClient as createSupabaseAdmin } from "@supabase/supabase-js"; // 
 import { getEnhancedContext } from "@/app/actions/medai-rag";
 import { generateEmbedding } from "@/app/actions/medai-core"; // Importando embedding
 
+// Imports do Sistema de Qualidade
+import { validateQuestionBatch } from "@/app/actions/question-validator";
+import { compactRAG, extractKeywords } from "@/app/actions/rag-compactor";
+import {
+    buildEnrichedQuery,
+    rerankMatches,
+    selectMatchStrategy,
+    fetchNodeHierarchy
+} from "@/app/actions/question-helpers";
+import {
+    DIFFICULTY_DEFINITIONS,
+    DISTRACTOR_RULES,
+    COMMENTARY_TEMPLATE,
+    FEW_SHOT_EXAMPLES
+} from "@/lib/ai-prompts";
+
+
 export interface GenerationParams {
     nodeId: string;
     mode: 'standard' | 'boss' | 'kahoot';
@@ -108,51 +125,58 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
     }
 
     // =========================================================
-    // PASSO 4: VECTOR SEARCH (A Buscas no Banco Gigante)
+    // PASSO 4: VECTOR SEARCH (Busca no Banco com Enrichment + Reranking)
     // =========================================================
     let foundQuestions: any[] = [];
+    let telemetryData: any = {
+        node_id: nodeId,
+        vector_query: null,
+        top1_distance: null,
+        top3_distances: [],
+        vector_matches_count: 0,
+        vector_hit_rate: 0,
+        ai_generated_count: 0,
+        validation_passed: 0,
+        validation_failed: 0
+    };
 
-    // Só buscamos vetores se NÃO estivermos no modo "boss" especifico ou se quisermos reaproveitar
-    // Para simplificar, vamos tentar buscar para 'standard' e 'kahoot'.
     if (mode !== 'boss') {
         try {
-            // A. Gerar Embedding do Tópico (Search Vector)
-            // Usamos o título do nó + contexto pai se houver
-            let searchTopic = node.title;
-            if (node.parent_id) {
-                const { data: parentNode } = await supabase.from('study_nodes').select('title').eq('id', node.parent_id).single();
-                if (parentNode) searchTopic += " " + parentNode.title;
-            }
+            // A. Query Enrichment com ai_context
+            const { data: parentNode } = node.parent_id
+                ? await supabase.from('study_nodes').select('title').eq('id', node.parent_id).single()
+                : { data: null };
 
-            const queryVector = await generateEmbedding(searchTopic);
+            const enrichedQuery = buildEnrichedQuery(node, parentNode);
+            const queryVector = await generateEmbedding(enrichedQuery);
 
-            // B. Buscar Questões Similares (RPC)
-            // Tentamos buscar um pouco mais para poder filtrar por dificuldade depois
-            const { data: vectorMatches, error: matchError } = await supabase.rpc('match_questions', {
+            telemetryData.vector_query = enrichedQuery.substring(0, 200);
+
+            // B. Buscar Questões Similares (RPC com distance)
+            let { data: vectorMatches, error: matchError } = await supabase.rpc('match_questions', {
                 query_embedding: queryVector,
-                match_threshold: 0.75, // Threshold de similaridade (quanto maior, mais frouxo, mas no RPC usamos 1 - distance)
-                // Se RPC usa distance < 1 - threshold. 0.8 significa distance < 0.2 (muito similar).
-                // Vamos ajustar: se threshold no RPC é similarity (0..1), entao 0.75 é bom.
-                match_count: 20,      // Buscamos 20 para ter variedade
-                filter_topics: null,  // Poderíamos passar array, mas vetor já cuida da semântica
-                filter_difficulty: null // Filtramos em código para pegar a receita exata
+                match_threshold: 0.75,
+                match_count: 20,
+                filter_topics: null,
+                filter_difficulty: null
             });
 
-            if (!matchError && vectorMatches) {
-                // C. Filtrar e Preencher a "Receita"
-                // Para cada item da receita (ex: 'easy'), tentamos achar um match no banco
+            if (!matchError && vectorMatches && vectorMatches.length > 0) {
+                telemetryData.vector_matches_count = vectorMatches.length;
+                telemetryData.top1_distance = vectorMatches[0]?.distance || null;
+                telemetryData.top3_distances = vectorMatches.slice(0, 3).map((m: any) => m.distance);
+
+                // C. Reranking com keywords
+                const keywords = await extractKeywords(node.ai_context || node.title);
+                const reranked = rerankMatches(vectorMatches, keywords, node);
+                vectorMatches = reranked; // Usar versão reranked
+
+                // D. Filtrar e Preencher a "Receita"
                 const usedIds = new Set();
-
-                // Vamos tentar encontrar questões do banco que ainda não foram usadas por esse usuário neste nó...
-                // Mas 'track_questions' é por nó. Se o usuário já fez esse nó, o cache do Passo 1 já pegou.
-                // A preocupação é: se o usuário resetar o nó? Ou se já viu essa questão em OUTRO nó?
-                // Por enquanto, assumimos que se está no bank e é relevante, serve.
-
-                const needed = [...difficultyRecipe]; // Cópia
+                const needed = [...difficultyRecipe];
 
                 for (let i = 0; i < needed.length; i++) {
                     const targetDiff = needed[i];
-                    // Tenta achar uma questão no vectorMatches que bata a dificuldade e não usada
                     const matchIndex = vectorMatches.findIndex((q: any) =>
                         q.difficulty === targetDiff &&
                         !usedIds.has(q.id) &&
@@ -163,20 +187,19 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
                         const match = vectorMatches[matchIndex];
                         foundQuestions.push({
                             ...match,
-                            is_vector_match: true // Marker
+                            is_vector_match: true
                         });
                         usedIds.add(match.id);
-                        needed[i] = 'DONE'; // Marca como preenchido
+                        needed[i] = 'DONE';
                     }
                 }
 
-                // Removemos os 'DONE' da lista de needed, deixando apenas o que FALTOU
-                difficultyRecipe = needed.filter(d => d !== 'DONE');
+                difficultyRecipe = needed.filter((d: string) => d !== 'DONE');
+                telemetryData.vector_hit_rate = foundQuestions.length / (foundQuestions.length + difficultyRecipe.length);
             }
 
         } catch (e) {
             console.error("Vector Search Failed (Ignored):", e);
-            // Segue vida, vai gerar tudo via IA
         }
     }
 
@@ -189,38 +212,62 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
         // =========================================================
         // Aqui usamos a lógica antiga, mas APENAS para o que faltou (difficultyRecipe)
 
-        // Define System Prompt & Context (Igual ao código original)
+        // Define System Prompt & Context com Constantes de Qualidade
         let systemPrompt = "";
         let contextSource = "";
+        let ragContent = "";
 
         if (node.ai_context && node.ai_context.trim().length > 0) {
             contextSource = "CUSTOM_TRACK";
-            // fetch RAG even for custom track
-            const ragContent = await getEnhancedContext(node.title);
-            systemPrompt = `
-            VOCÊ É UM PROFESSOR DE MEDICINA CRIANDO QUESTÕES DE PROVA.
-            
-            == CONTEXTO PEDAGÓGICO (PRIORIDADE TOTAL) ==
-            """ ${node.ai_context} """
-            
-            == CONTEXTO BIBLIOGRÁFICO (RAG - Background Knowledge) ==
-            """ ${ragContent} """
+            const rawRAG = await getEnhancedContext(node.title);
+            ragContent = await compactRAG(rawRAG, node.title);
 
-            REGRAS DE OURO:
-            1. Baseie-se PRINCIPALMENTE no Contexto Pedagógico.
-            2. O Contexto Bibliográfico serve apenas como suporte técnico de fundo. NÃO CITE o RAG a menos que seja explicitamente solicitado ou necessário para validar uma informação técnica.
-            3. Formule como Verdades Médicas Universais ou Casos Clínicos.
+            systemPrompt = `
+VOCÊ É UM PROFESSOR DE MEDICINA DE ELITE CRIANDO QUESTÕES DE PROVA.
+
+${DIFFICULTY_DEFINITIONS}
+
+${DISTRACTOR_RULES}
+
+${COMMENTARY_TEMPLATE}
+
+== CONTEXTO PEDAGÓGICO (PRIORIDADE TOTAL) ==
+${node.ai_context}
+
+== CONTEXTO BIBLIOGRÁFICO (RAG - Background Knowledge) ==
+${ragContent}
+
+REGRAS DE OURO:
+1. Baseie-se PRINCIPALMENTE no Contexto Pedagógico.
+2. O Contexto Bibliográfico serve apenas como suporte técnico de fundo.
+3. Formule como Verdades Médicas Universais ou Casos Clínicos.
+
+${FEW_SHOT_EXAMPLES}
             `;
         } else {
             contextSource = "OFFICIAL_TRACK";
-            const ragContent = await getEnhancedContext(node.title);
+            const rawRAG = await getEnhancedContext(node.title);
+            ragContent = await compactRAG(rawRAG, node.title);
+
             systemPrompt = `
-            VOCÊ É UM PROFESSOR DE MEDICINA.
-            Tópico: ${node.title}
-            Contexto RAG: """ ${ragContent} """
-            REGRAS: 
-            1. Use RAG ou conhecimento médico. Formule como Casos Clínicos ou Verdades Médicas.
-            2. O RAG é uma fonte de consulta, o usuário não consegue ler o texto, portanto, evite citar o que selecionou nas questões.
+VOCÊ É UM PROFESSOR DE MEDICINA DE ELITE CRIANDO QUESTÕES DE PROVA.
+
+${DIFFICULTY_DEFINITIONS}
+
+${DISTRACTOR_RULES}
+
+${COMMENTARY_TEMPLATE}
+
+Tópico: ${node.title}
+
+== CONTEXTO BIBLIOGRÁFICO (RAG) ==
+${ragContent}
+
+REGRAS:
+1. Use RAG ou conhecimento médico. Formule como Casos Clínicos ou Verdades Médicas.
+2. O RAG é uma fonte de consulta, o usuário não consegue ler o texto, portanto, evite citar o que selecionou nas questões.
+
+${FEW_SHOT_EXAMPLES}
             `;
         }
 
@@ -287,6 +334,70 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
 
         const results = await Promise.all(batchPromises);
         let generatedNew = results.flat();
+
+        // =========================================================
+        // PASSO 5.1: VALIDAÇÃO COM RETRY
+        // =========================================================
+        const MAX_RETRIES = 2;
+        let retryCount = 0;
+
+        while (retryCount < MAX_RETRIES) {
+            const validation = validateQuestionBatch(generatedNew, difficultyRecipe);
+
+            telemetryData.validation_passed = validation.stats.passed;
+            telemetryData.validation_failed = validation.stats.failed;
+
+            if (validation.invalid.length === 0) {
+                // Todas passaram!
+                generatedNew = validation.valid;
+                console.log(`✅ Validação: ${validation.stats.passed} questões aprovadas`);
+                break;
+            }
+
+            console.warn(`⚠️ Validação: ${validation.stats.failed} questões reprovadas (tentativa ${retryCount + 1}/${MAX_RETRIES})`);
+            console.warn('Problemas:', validation.stats.criticalIssues.slice(0, 5));
+
+            if (retryCount === MAX_RETRIES - 1) {
+                // Última tentativa: aceitar apenas as válidas
+                generatedNew = validation.valid;
+                console.error(`❌ Algumas questões não passaram após ${MAX_RETRIES} tentativas. Usando apenas ${generatedNew.length} válidas.`);
+                break;
+            }
+
+            // Re-gerar apenas as reprovadas
+            const failedDifficulties = validation.invalid.map(item => item.expectedDifficulty || 'medium');
+
+            try {
+                const retryPrompt = `
+${systemPrompt}
+=== TAREFA (RETRY) ===
+Gere EXATAMENTE ${failedDifficulties.length} questões.
+Dificuldades: ${failedDifficulties.join(", ")}.
+Tipos permitidos: ${allowedTypes.join(", ")}.
+
+ATENÇÃO: As questões anteriores foram REPROVADAS por:
+${validation.stats.criticalIssues.slice(0, 3).join('\n')}
+
+Corrija esses problemas!
+                `;
+
+                const retryResult = await model.generateContent(retryPrompt);
+                const retryText = retryResult.response.text();
+                const retryJson = JSON.parse(retryText.replace(/```json|```/g, "").trim());
+                const retryQuestions = Array.isArray(retryJson) ? retryJson : [retryJson];
+
+                // Substituir reprovadas por novas
+                generatedNew = [...validation.valid, ...retryQuestions];
+            } catch (err) {
+                console.error('Erro no retry:', err);
+                generatedNew = validation.valid; // Aceitar apenas válidas
+                break;
+            }
+
+            retryCount++;
+        }
+
+        telemetryData.ai_generated_count = generatedNew.length;
 
         // =========================================================
         // PASSO 5.1: INGESTÃO ASSÍNCRONA (Save to Bank)
@@ -360,6 +471,16 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
         .select();
 
     if (error) throw error;
+
+    // =========================================================
+    // PASSO 7: TELEMETRIA (Logging de Métricas)
+    // =========================================================
+    try {
+        await supabase.from('question_generation_logs').insert(telemetryData);
+    } catch (telemetryError) {
+        console.error('[Telemetry] Erro ao salvar log:', telemetryError);
+        // Não bloqueia o fluxo
+    }
 
     return { success: true, count: data.length, data, fromCache: false, source: "HYBRID" };
 }

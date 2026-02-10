@@ -1,7 +1,7 @@
 
 export const AI_CONTEXTS = {
-    // 1. Flashcard Generator
-    flashcard_creator: `
+  // 1. Flashcard Generator
+  flashcard_creator: `
       Você é um Professor de Medicina de Elite e especialista em Metodologias Ativas de Estudo.
 
       TAREFA:
@@ -28,8 +28,8 @@ export const AI_CONTEXTS = {
   [ { "front": "...", "back": "..." } ]
   `,
 
-    // 2. MedAI Tutor (General Chat & Flashcard Tutor)
-    medai_tutor: `
+  // 2. MedAI Tutor (General Chat & Flashcard Tutor)
+  medai_tutor: `
       Você é o MedAI, um Preceptor Sênior de Medicina e especialista em educação médica baseada em evidências.
 
     OBJETIVO PRIMÁRIO:
@@ -73,8 +73,8 @@ export const AI_CONTEXTS = {
         Profissional, Acadêmico, Direto e Encorajador. Evite prolixidade desnecessária. Vá direto ao ponto clínico. Seja Consiso.
         `,
 
-    // 3. Exam Mentor (Simulated Exams)
-    exam_mentor: `
+  // 3. Exam Mentor (Simulated Exams)
+  exam_mentor: `
       Seu objetivo é ajudar estudantes de medicina e residentes a raciocinarem clinicamente.
       
       Regras:
@@ -86,14 +86,14 @@ export const AI_CONTEXTS = {
 
   `,
 
-    // 4. Session Title Generator
-    title_generator: `
+  // 4. Session Title Generator
+  title_generator: `
       Analise a mensagem inicial e crie um Título Curto (máximo 4 ou 5 palavras) que resuma o tópico. 
       Retorne APENAS o título, sem aspas e sem markdown.
   `,
 
-    // 5. Syllabus Generator (Custom Track)
-    syllabus_generator: `
+  // 5. Syllabus Generator (Custom Track)
+  syllabus_generator: `
     Você é um Coordenador Pedagógico de Medicina. Gere uma trilha de estudo em JSON válido.
     
     REGRAS INEGOCIÁVEIS:
@@ -159,8 +159,8 @@ export const AI_CONTEXTS = {
     }
   `,
 
-    // 6. Summary Generator (Smart Summary)
-    summary_generator: `
+  // 6. Summary Generator (Smart Summary)
+  summary_generator: `
       Você é um Professor Universitário de Medicina renomado por sua didática.
       
       OBJETIVO:
@@ -197,3 +197,127 @@ export const AI_CONTEXTS = {
 } as const;
 
 export type AIContextKey = keyof typeof AI_CONTEXTS;
+
+// ==============================================================================
+// CONSTANTES PARA GERAÇÃO DE QUESTÕES DE ALTA QUALIDADE
+// ==============================================================================
+
+export const DIFFICULTY_DEFINITIONS = `
+=== DEFINIÇÕES DE DIFICULDADE (RIGOROSAS) ===
+
+🟢 EASY (Fácil):
+- Conhecimento factual direto (1 passo cognitivo)
+- Reconhecimento de definições, classificações básicas, valores de referência
+- Resposta óbvia para quem estudou o tópico básico
+- Distratores claramente incorretos para quem tem conhecimento mínimo
+- Sem pegadinhas, ambiguidades ou nuances clínicas
+- Exemplo: "Qual a faixa normal de glicemia de jejum em adultos?"
+
+🟡 MEDIUM (Médio):
+- Aplicação de conceitos em cenários clínicos simples (2 passos cognitivos)
+- Interpretação de quadro clínico + seleção de conduta padrão
+- 2 alternativas podem parecer plausíveis à primeira vista
+- Requer raciocínio clínico básico ou conhecimento de protocolo
+- Distratores baseados em erros comuns de estudantes
+- Exemplo: "Paciente com dor torácica típica + ECG com supra de ST em V1-V4. Conduta inicial?"
+
+🔴 HARD (Difícil):
+- Cenários clínicos complexos com múltiplas variáveis (3+ passos cognitivos)
+- Diagnóstico diferencial fino, contraindicações, comorbidades
+- 3+ alternativas plausíveis que exigem análise cuidadosa
+- Requer conhecimento de guidelines específicos ou fisiopatologia avançada
+- Distratores são condutas que seriam corretas em contextos ligeiramente diferentes
+- Exemplo: "Gestante 32sem, HAS crônica, Cr 1.8, proteinúria 2g/24h. Melhor anti-hipertensivo?"
+`;
+
+export const DISTRACTOR_RULES = `
+=== REGRAS PARA DISTRATORES (ALTERNATIVAS INCORRETAS) ===
+
+✅ DISTRATORES DEVEM:
+1. Representar erros comuns de raciocínio clínico
+2. Ser condutas/respostas corretas em OUTRO contexto clínico
+3. Ter tamanho similar à resposta correta (evitar dica visual)
+4. Usar terminologia médica correta (não inventar termos)
+
+❌ DISTRATORES NÃO DEVEM:
+1. Conter "Todas as anteriores" ou "Nenhuma das anteriores"
+2. Usar negativas desnecessárias ("EXCETO", "NÃO é")
+3. Ser absurdos ou obviamente errados
+4. Repetir informação com palavras diferentes
+5. Ter padrões (ex.: alternativa C sempre correta)
+
+📋 TIPOS DE DISTRATORES EFICAZES:
+- Dose/tempo incorreto (ex.: "Amoxicilina 500mg 8/8h por 3 dias" quando correto é 7 dias)
+- Conduta correta em fase errada (ex.: "Betabloqueador" em IC descompensada aguda)
+- Exame menos específico (ex.: "Raio-X" quando TC é padrão-ouro)
+- Mecanismo fisiopatológico invertido
+`;
+
+export const COMMENTARY_TEMPLATE = `
+=== TEMPLATE OBRIGATÓRIO DO COMMENTARY ===
+
+Estrutura RIGOROSA (seguir exatamente):
+
+**Resposta correta: [Letra] - [Texto da alternativa]**
+
+**Justificativa:**
+[2-4 linhas explicando POR QUÊ esta é a resposta correta, incluindo mecanismo fisiopatológico, guideline ou raciocínio clínico]
+
+**Por que as outras estão incorretas:**
+- **[Letra]:** [1 linha explicando o erro conceitual]
+- **[Letra]:** [1 linha explicando o erro conceitual]
+
+**Ponto-chave:** [1 frase final resumindo o conceito essencial]
+`;
+
+export const FEW_SHOT_EXAMPLES = `
+=== EXEMPLOS DE QUESTÕES EXCELENTES ===
+
+[EXEMPLO 1 - EASY]
+{
+  "statement": "Qual o principal mecanismo de ação dos diuréticos de alça (furosemida)?",
+  "q_type": "multiple_choice",
+  "difficulty": "easy",
+  "commentary": "**Resposta correta: A - Inibição NKCC2 na alça de Henle ascendente**\\n\\n**Justificativa:** Bloqueiam cotransportador Na+/K+/2Cl- no ramo ascendente espesso, impedindo reabsorção. São os diuréticos mais potentes (20-25% do Na+ filtrado).\\n\\n**Por que as outras erradas:**\\n- **B:** Tiazídicos bloqueiam canais Na+ no túbulo distal\\n- **C:** Espironolactona antagoniza aldosterona no ducto coletor\\n- **D:** Acetazolamida inibe anidrase carbônica\\n\\n**Ponto-chave:** Alça de Henle = maior reabsorção de Na+, logo maior potência diurética.",
+  "content": {
+    "options": [
+      { "id": "A", "text": "Inibição NKCC2 na alça de Henle ascendente", "isCorrect": true },
+      { "id": "B", "text": "Bloqueio de canais Na+ no túbulo distal", "isCorrect": false },
+      { "id": "C", "text": "Antagonismo de aldosterona no ducto coletor", "isCorrect": false },
+      { "id": "D", "text": "Inibição da anidrase carbônica", "isCorrect": false }
+    ]
+  }
+}
+
+[EXEMPLO 2 - MEDIUM]
+{
+  "statement": "Homem 68a, diabético, com dispneia aos esforços, edema MMII e crepitações bibasais. Eco: FE 35%. Qual classe reduz mortalidade?",
+  "q_type": "multiple_choice",
+  "difficulty": "medium",
+  "commentary": "**Resposta correta: B - Betabloqueadores**\\n\\n**Justificativa:** ICFEr confirmada (FE <40%). Betabloqueadores são 1 das 4 classes com redução de mortalidade (IECA/BRA, BB, ARM, ISGLT2). Melhoram remodelamento e reduzem morte súbita.\\n\\n**Por que as outras erradas:**\\n- **A:** Digoxina melhora sintomas mas NÃO reduz mortalidade\\n- **C:** Furosemida é sintomático (congestão)\\n- **D:** Anlodipino sem benefício em IC\\n\\n**Ponto-chave:** Terapia quádrupla em ICFEr reduz mortalidade.",
+  "content": {
+    "options": [
+      { "id": "A", "text": "Digoxina", "isCorrect": false },
+      { "id": "B", "text": "Betabloqueadores", "isCorrect": true },
+      { "id": "C", "text": "Furosemida", "isCorrect": false },
+      { "id": "D", "text": "Anlodipino", "isCorrect": false }
+    ]
+  }
+}
+
+[EXEMPLO 3 - HARD]
+{
+  "statement": "IC descompensada, furosemida 80mg/dia. Cr 2.1 (basal 1.2), K+ 5.6, Na+ 128. Uso: enalapril 20mg + espironolactona 25mg. Melhor ajuste?",
+  "q_type": "multiple_choice",
+  "difficulty": "hard",
+  "commentary": "**Resposta correta: A - Suspender espironolactona e reduzir enalapril**\\n\\n**Justificativa:** Síndrome cardiorrenal tipo 1 + hipercalemia (K+ 5.6) + hiponatremia. IECA+ARM em disfunção renal = risco alto de hipercalemia. Suspender ARM temporariamente.\\n\\n**Por que as outras erradas:**\\n- **B:** Aumentar diurético agrava disfunção renal e hiponatremia\\n- **C:** Tiazídico não resolve hipercalemia\\n- **D:** Suspender tudo remove proteção CV\\n\\n**Ponto-chave:** Síndrome cardiorrenal com K+ alto: suspender ARM, ajustar IECA.",
+  "content": {
+    "options": [
+      { "id": "A", "text": "Suspender espironolactona e reduzir enalapril", "isCorrect": true },
+      { "id": "B", "text": "Aumentar furosemida para 160mg/dia", "isCorrect": false },
+      { "id": "C", "text": "Adicionar hidroclorotiazida 25mg/dia", "isCorrect": false },
+      { "id": "D", "text": "Suspender enalapril e espironolactona", "isCorrect": false }
+    ]
+  }
+}
+`;

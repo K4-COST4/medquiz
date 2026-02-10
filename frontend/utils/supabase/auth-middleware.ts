@@ -51,7 +51,9 @@ export async function updateSession(request: NextRequest) {
     publicRoutes.includes(path) ||
     path.startsWith('/auth') ||       // Callbacks de Auth
     path.startsWith('/legal') ||       // Legal pages (Terms, Privacy)
-    path.startsWith('/api/webhooks'); // Webhooks externos
+    path.startsWith('/api/webhooks') || // Webhooks externos
+    path.startsWith('/api/metrics') ||  // API de métricas (autenticação por header)
+    path.startsWith('/api/retry-embeddings'); // API de retry (autenticação por header)
 
   // B. Regra: Usuário LOGADO tentando acessar páginas de Auth -> Dashboard
   if (user && (path === '/login' || path === '/cadastro')) {
