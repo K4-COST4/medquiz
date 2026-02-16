@@ -49,7 +49,7 @@ ${rawRAG.substring(0, 3000)}
             contextKey: 'medai_tutor',
             userMessage: compactionPrompt,
             responseType: 'text',
-            modelName: 'gemini-2.0-flash-exp',
+            modelName: 'gemini-2.5-flash-8b', // Flash-Lite: 50% mais barato, suficiente para compactação
             skipQuota: true,
             quotaType: 'unlimited'
         });

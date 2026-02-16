@@ -19,8 +19,11 @@ export async function generateEmbeddingBatch(texts: string[]): Promise<number[][
     const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
 
     try {
-        // Gerar todos embeddings em paralelo
-        const promises = texts.map(text => model.embedContent(text));
+        // Gerar todos embeddings em paralelo (768 dims para coincidir com DB)
+        const promises = texts.map(text => model.embedContent({
+            content: { role: 'user', parts: [{ text }] },
+            outputDimensionality: 768
+        } as any));
         const results = await Promise.all(promises);
 
         return results.map(r => r.embedding.values);

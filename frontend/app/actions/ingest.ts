@@ -114,7 +114,10 @@ async function processChunkWithRetry(
 
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
-            const result = await model.embedContent(chunk);
+            const result = await model.embedContent({
+                content: { role: 'user', parts: [{ text: chunk }] },
+                outputDimensionality: 768
+            } as any);
             return result.embedding.values;
         } catch (error: any) {
             const isTokenError = error?.message?.includes('token') || error?.message?.includes('length');

@@ -1,6 +1,6 @@
 
 export const AI_CONTEXTS = {
-  // 1. Flashcard Generator
+  // 1. Flashcard Generator (ENHANCED - Fase 2)
   flashcard_creator: `
       Você é um Professor de Medicina de Elite e especialista em Metodologias Ativas de Estudo.
 
@@ -18,11 +18,45 @@ export const AI_CONTEXTS = {
 
   3. **Verso (Explicação High Yield):**
      - Inicie com a resposta direta em **Negrito**.
-     - Em seguida, explique o "Porquê" (Mecanismo Fisiológico ou Racional Clínico) de forma concisa e direta.
+     - Explique o "Porquê" de forma concisa (250-350 caracteres).
+     - Estrutura ideal: **Resposta** + Mecanismo/Porquê + ⚠️ Pitfall (opcional).
 
   4. **Formatação:**
      - Use Markdown no JSON para destacar palavras-chave.
      - Idioma: Português do Brasil (Técnico e Formal).
+
+  VARIEDADE OBRIGATÓRIA:
+  - Alterne tipos: conduta, diagnóstico, fisiopatologia, contraindicação, interpretação de exame
+  - Evite repetir o mesmo template em sequência
+  - Varie o formato da pergunta (direta, cenário, comparação, "qual NÃO")
+
+  HIERARQUIA DE FUENTES (CRÍTICO):
+  - **PDF fornecido** > RAG (base interna) > Conhecimento geral
+  - Se houver conflito entre PDF e RAG: PRIORIZE O PDF
+  - Se PDF não cobrir o tópico: use RAG
+  - Se nenhum cobrir: use conhecimento médico estabelecido (Harrison, diretrizes)
+  - **NUNCA invente detalhes** não presentes nas fontes
+
+  EXEMPLOS (Aprenda com estes):
+
+  ❌ RUIM:
+  Front: "O que é diabetes mellitus?"
+  Back: "Doença do açúcar no sangue"
+  Problema: Definição genérica, sem aplicação clínica, verso superficial
+
+  ✅ BOM:
+  Front: "Paciente com poliúria, polidipsia e glicemia 280 mg/dL. Qual o mecanismo fisiopatológico da poliúria?"
+  Back: "**Diurese osmótica**. Glicose >180 mg/dL excede capacidade de reabsorção tubular (SGLT2), causando perda obrigatória de água e eletrólitos. ⚠️ Risco: desidratação grave e hipovolemia."
+
+  CHECKLIST INTERNO (Verifique cada card antes de retornar):
+  ☑ Testa apenas 1 conceito?
+  ☑ Frente é aplicação/cenário (não definição)?
+  ☑ Verso tem resposta em negrito + porquê?
+  ☑ Tamanho adequado (250-350 chars no verso)?
+  ☑ Não repete padrão do card anterior?
+  ☑ Sem ambiguidades ou listas abertas?
+  ☑ Markdown correto (sem HTML)?
+  ☑ Prioriza PDF > RAG > conhecimento geral?
 
   FORMATO JSON OBRIGATÓRIO (Retorne APENAS o JSON cru):
   [ { "front": "...", "back": "..." } ]
@@ -106,15 +140,44 @@ export const AI_CONTEXTS = {
     - Se mode="OBJECTIVES": criar exatamente 1 módulo por objetivo recebido. Objetivos vagos devem ser expandidos em títulos adequados (ex: "Diabetes" → "Visão geral do Diabetes Mellitus").
     - Se mode="FREE_TEXT": agrupar em módulos coesos e sequenciais cobrindo os tópicos citados.
     
-    QUALIDADE E QUANTIDADE DE AULAS:
-    - Cada módulo deve ter aulas sequenciais e não redundantes.
-    - Quantidade de aulas por módulo:
-      * Regra base: 1-7 aulas por módulo
-      * Módulo simples (tópico específico): 1-3 aulas
-      * Módulo médio (tema abrangente): 3-5 aulas
-      * Módulo amplo (área complexa): 5-7 aulas
-    - Evite títulos genéricos repetidos ("Introdução") sem especificar.
-    - Preferir menos aulas bem definidas a muitas redundantes.
+    REGRAS ESPECÍFICAS POR MODO (OBRIGATÓRIO):
+    
+    Se mode="OBJECTIVES":
+    - Cada objetivo vira um MÓDULO COMPLETO.
+    - Objetivos curtos que sejam DOENÇAS/CONDIÇÕES comuns (ex: "Diabetes", "Asma", "Depressão") DEVEM ser tratados como DOENÇA (4–6 aulas), e não como "tópico simples".
+    - Só usar 2–3 aulas se for CONCEITO/PROCEDIMENTO isolado e específico.
+    
+    Se mode="FREE_TEXT":
+    - Agrupar em módulos e aplicar os mesmos critérios objetivos de tipo.
+    - Se o texto pedir "fisiopatologia + diagnóstico + tratamento" → 5–7 aulas.
+    - Se pedir "visão geral" → 3–4 aulas.
+    - Se misturar múltiplos temas → separar em módulos e fazer 4–6 aulas por módulo.
+    
+    CRITÉRIOS OBJETIVOS DE TIPO (COM EXEMPLOS):
+    
+    1) CONCEITO/PROCEDIMENTO ISOLADO → 2–3 aulas
+       Ex.: "Técnica de venopunção", "Cálculo de clearance", "Escala de Glasgow"
+    
+    2) EXAME/INTERPRETAÇÃO → 3–4 aulas
+       Ex.: "ECG", "Gasometria", "Hemograma"
+    
+    3) DOENÇA/CONDIÇÃO/SÍNDROME → 4–6 aulas (PADRÃO PARA A MAIORIA)
+       Ex.: "Diabetes Mellitus", "Hipertensão Arterial", "Insuficiência Cardíaca", "DPOC", "Depressão", "Asma", "AVC", "IAM"
+       Estrutura mínima (em aulas separadas):
+       - Fisiopatologia/fatores de risco
+       - Quadro clínico e diagnóstico/diferencial essencial
+       - Tratamento/conduta
+       - Complicações/red flags
+       - Caso(s) clínico(s) aplicado(s)
+    
+    4) ÁREA AMPLA/SISTEMA/GUARDA-CHUVA → 6–8 aulas
+       Ex.: "Cardiologia básica", "Emergências", "Endocrinologia", "Neurologia em urgência"
+    
+    QUALIDADE E SEQUÊNCIA:
+    - Cada aula deve ter escopo único e não redundante.
+    - Evitar títulos genéricos ("Introdução") sem especificar.
+    - Criar aulas suficientes para cobrir adequadamente, sem redundância.
+    - REGRA GERAL: a maioria das DOENÇAS deve cair em 4–6 aulas (não 2–3).
     - OBRIGATÓRIO: Todo módulo deve ter pelo menos 1 aula.
     
     ESTRUTURA OBRIGATÓRIA DO ai_context:

@@ -147,6 +147,7 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
                 // 2. Continua o fluxo para criar uma nova (NÃO RETORNA)
             } else {
                 // Sessão ainda ativa e incompleta, retorna ela
+                console.log(`✅ Retomando sessão: ${answeredCount}/${sessionQuestions.length} respondidas, ${correctCount} corretas, ${currentScore} XP`);
                 return {
                     success: true,
                     data: {
@@ -157,8 +158,8 @@ export async function getStudentSession(nodeId: string): Promise<{ success: bool
                         parentThemeId,
                         progress: {
                             currentIndex: answeredCount,
-                            correctCount: correctCount,
-                            currentScore: currentScore
+                            correctCount,
+                            currentScore
                         }
                     }
                 };

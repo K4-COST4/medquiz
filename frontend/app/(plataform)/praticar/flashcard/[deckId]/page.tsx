@@ -12,6 +12,7 @@ import {
     Check,
     X,
     MessageCircle,
+    Download,
     MoreVertical,
     Trash2,
     Edit,
@@ -81,6 +82,10 @@ import {
 import { generateFlashcardsAI, type GeneratedCard } from "@/app/actions/generate-cards"
 import { createSession, sendMessage } from "@/app/(plataform)/medai/actions"
 import { FlashcardRating } from "@/components/flashcards/flashcard-rating" // Import Rating Component
+import { DeckStats } from "@/components/flashcards/deck-stats" // Import DeckStats
+import { getDeckStats } from "@/app/actions/flashcards" // Import getDeckStats
+import { SRSReview } from "@/components/flashcards/srs-review" // Import SRS Review
+import { getDueCards, type DueCard } from "@/app/actions/srs" // Import SRS actions
 
 export default function StudyPage() {
     const params = useParams()
@@ -102,6 +107,7 @@ export default function StudyPage() {
     const [fileBase64, setFileBase64] = useState<string>("")
     const [fileName, setFileName] = useState("")
     const [isGenerating, setIsGenerating] = useState(false)
+    const [generationProgress, setGenerationProgress] = useState(0)
     const [generatedCards, setGeneratedCards] = useState<GeneratedCard[]>([])
     const [selectedGenerated, setSelectedGenerated] = useState<number[]>([]) // Indices
     const [step, setStep] = useState<'config' | 'preview'>('config')
@@ -147,6 +153,12 @@ export default function StudyPage() {
     const [newBack, setNewBack] = useState("")
     const [isSavingCard, setIsSavingCard] = useState(false)
     const [showAnswersInManager, setShowAnswersInManager] = useState(false) // Privacy default off
+    const [isExporting, setIsExporting] = useState(false) // Export state
+
+    // SRS Mode State
+    const [srsMode, setSrsMode] = useState(false) // Toggle between normal and SRS mode
+    const [dueCards, setDueCards] = useState<DueCard[]>([]) // Cards due for review
+    const [loadingSRS, setLoadingSRS] = useState(false) // Loading due cards
 
     // Carregar dados
     useEffect(() => {
@@ -239,29 +251,57 @@ export default function StudyPage() {
     // --- AI GENERATION ---
     const handleGenerate = async () => {
         setIsGenerating(true)
-        try {
-            const res = await generateFlashcardsAI({
-                topic: deck?.title || "Geral",
-                details: `${deck?.description || ""} \nObjetivo: ${deck?.study_objective || ""}`,
-                references: aiReferences,
-                difficulty: aiDifficulty,
-                amount: aiAmount[0],
-                fileBase64: fileBase64 || undefined,
-                deckId: deckId
-            })
+        setGenerationProgress(0)
 
-            if (res.success && res.cards) {
-                setGeneratedCards(res.cards)
-                setSelectedGenerated(res.cards.map((_, i) => i)) // Seleciona todos por padrão
+        // Simular progresso enquanto aguarda Server Action
+        const progressInterval = setInterval(() => {
+            setGenerationProgress(prev => {
+                if (prev >= 90) return prev // Para em 90% até completar
+                return prev + Math.random() * 8 // Incremento variável
+            })
+        }, 800)
+
+        try {
+            const { generateInBatches } = await import('@/app/actions/flashcard-batching')
+
+            const result = await generateInBatches(
+                aiAmount[0],
+                {
+                    topic: deck?.title || "Geral",
+                    details: `${deck?.description || ""} \nObjetivo: ${deck?.study_objective || ""}`,
+                    references: aiReferences,
+                    difficulty: aiDifficulty,
+                    fileBase64: fileBase64 || undefined,
+                    deckId: deckId
+                }
+            )
+
+            clearInterval(progressInterval)
+            setGenerationProgress(100)
+
+            if (result.cards.length > 0) {
+                setGeneratedCards(result.cards)
+                setSelectedGenerated(result.cards.map((_, i) => i))
                 setStep('preview')
+                toast.success(`${result.cards.length}/${result.total} cards gerados com sucesso!`)
             } else {
-                toast.error("Falha ao gerar cards: " + res.error)
+                toast.error("Nenhum card foi gerado")
             }
-        } catch (e) {
-            toast.error("Erro inesperado na IA")
+        } catch (e: any) {
+            clearInterval(progressInterval)
+            toast.error("Erro inesperado na IA: " + (e.message || ''))
         } finally {
             setIsGenerating(false)
+            setGenerationProgress(0)
         }
+    }
+
+    const handleCancelGeneration = () => {
+        // Nota: Server Actions não suportam cancelamento direto
+        // O usuário pode recarregar a página como fallback
+        setIsGenerating(false)
+        setGenerationProgress(0)
+        toast.info("Geração interrompida (a geração no servidor pode continuar em background)")
     }
 
     // ... (handleSaveGenerated and toggleSelection remain same)
@@ -422,6 +462,71 @@ export default function StudyPage() {
         finally { setIsSavingCard(false) }
     }
 
+    // Handle Anki Export
+    const handleAnkiExport = async () => {
+        setIsExporting(true)
+        try {
+            const response = await fetch(`/api/anki/export?deckId=${deckId}`)
+
+            if (!response.ok) {
+                throw new Error('Erro ao exportar deck')
+            }
+
+            // Download do arquivo
+            const blob = await response.blob()
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${deck?.title || 'deck'}.apkg`
+            document.body.appendChild(a)
+            a.click()
+            window.URL.revokeObjectURL(url)
+            document.body.removeChild(a)
+
+            // Confetti
+            confetti({
+                particleCount: 100,
+                spread: 70,
+                origin: { y: 0.6 }
+            })
+        } catch (error) {
+            console.error('Export error:', error)
+            alert('Erro ao exportar deck para Anki')
+        } finally {
+            setIsExporting(false)
+        }
+    }
+
+    // Handle SRS Mode Toggle
+    const handleEnterSRSMode = async () => {
+        setLoadingSRS(true)
+        try {
+            const cards = await getDueCards(deckId)
+            setDueCards(cards)
+            setSrsMode(true)
+        } catch (error) {
+            console.error('Error loading due cards:', error)
+            alert('Erro ao carregar cards para revisão')
+        } finally {
+            setLoadingSRS(false)
+        }
+    }
+
+    const handleExitSRSMode = () => {
+        setSrsMode(false)
+        setDueCards([])
+        // Stats will be refreshed on next page load or when DeckStats component re-renders
+    }
+
+    const handleSRSComplete = () => {
+        confetti({
+            particleCount: 150,
+            spread: 100,
+            origin: { y: 0.6 }
+        })
+        handleExitSRSMode()
+    }
+
     if (isLoading) return <div className="p-10 text-center">Carregando seus estudos...</div>
 
     if (!deck) return null
@@ -463,6 +568,28 @@ export default function StudyPage() {
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
+
+                    {/* SRS REVIEW BUTTON */}
+                    <Button
+                        variant="outline"
+                        className="border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400"
+                        onClick={handleEnterSRSMode}
+                        disabled={loadingSRS || cards.length === 0}
+                    >
+                        <RotateCw size={16} className="mr-2 text-purple-500" />
+                        {loadingSRS ? 'Carregando...' : 'Revisar Deck (SRS)'}
+                    </Button>
+
+                    {/* ANKI EXPORT BUTTON */}
+                    <Button
+                        variant="outline"
+                        className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400"
+                        onClick={handleAnkiExport}
+                        disabled={isExporting || cards.length === 0}
+                    >
+                        <Download size={16} className="mr-2 text-emerald-500" />
+                        {isExporting ? 'Exportando...' : 'Exportar Anki'}
+                    </Button>
 
                     <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
                         <DialogTrigger asChild>
@@ -572,13 +699,49 @@ export default function StudyPage() {
                                             <Label>Quantidade: <span className="font-bold text-indigo-600">{aiAmount[0]}</span></Label>
                                             <Slider
                                                 value={aiAmount}
-                                                onValueChange={setAiAmount}
+                                                onValueChange={(value) => {
+                                                    setAiAmount(value)
+                                                    if (value[0] > 20) {
+                                                        toast.warning(`⚠️ Acima de 20 cards pode demorar mais`)
+                                                    }
+                                                }}
                                                 max={50}
-                                                min={3}
-                                                step={1}
+                                                min={5}
+                                                step={5}
                                                 className="py-2"
                                             />
+                                            {aiAmount[0] > 20 && (
+                                                <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                                                    ⚠️ Gerações acima de 20 cards podem levar mais tempo
+                                                </p>
+                                            )}
                                         </div>
+
+                                        {/* PROGRESS BAR */}
+                                        {isGenerating && (
+                                            <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <span className="text-gray-700 dark:text-gray-300 font-medium">Gerando flashcards...</span>
+                                                    <span className="font-bold text-blue-600 dark:text-blue-400">{generationProgress}%</span>
+                                                </div>
+                                                <Progress value={generationProgress} className="h-2" />
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                                                        {generationProgress < 30 && "Analisando contexto..."}
+                                                        {generationProgress >= 30 && generationProgress < 70 && "Criando cards..."}
+                                                        {generationProgress >= 70 && "Finalizando..."}
+                                                    </p>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={handleCancelGeneration}
+                                                        className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                                    >
+                                                        Cancelar
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ) : (
@@ -629,272 +792,291 @@ export default function StudyPage() {
                 </div>
             </header>
 
-            {/* PROGRESS & TITLE */}
-            <div className="text-center mb-8 relative">
-                <div className="flex justify-between text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider px-2">
-                    <span>Início</span>
-                    <span>{cards.length > 0 ? `${activeIndex + 1} / ${cards.length}` : "0"}</span>
-                    <span>Fim</span>
-                </div>
-                <Progress value={cards.length > 0 ? ((activeIndex + 1) / cards.length) * 100 : 0} className="h-2 w-full mx-auto" />
+            {/* DECK STATS */}
+            <div className="mb-6">
+                <DeckStats
+                    deckId={deckId}
+                    totalCards={cards.length}
+                />
             </div>
 
-            {
-                cards.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-8 bg-slate-50 dark:bg-slate-900/50">
-                        <Brain className="h-16 w-16 text-slate-300 mb-4" />
-                        <h2 className="text-xl font-semibold mb-2">Este baralho está vazio</h2>
-                        <p className="text-slate-500 mb-6 text-center max-w-sm">Use a IA para gerar conteúdo automaticamente ou adicione cards manualmente.</p>
-                        <Button onClick={() => setIsAiModalOpen(true)} className="bg-indigo-600">
-                            <Sparkles className="mr-2" /> Gerar Conteúdo com IA
-                        </Button>
+            {/* SRS MODE OR NORMAL MODE */}
+            {srsMode ? (
+                <SRSReview
+                    dueCards={dueCards}
+                    onComplete={handleSRSComplete}
+                    onBack={handleExitSRSMode}
+                />
+            ) : (
+                <>
+                    {/* PROGRESS & TITLE */}
+                    <div className="text-center mb-8 relative">
+                        <div className="flex justify-between text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider px-2">
+                            <span>Início</span>
+                            <span>{cards.length > 0 ? `${activeIndex + 1} / ${cards.length}` : "0"}</span>
+                            <span>Fim</span>
+                        </div>
+                        <Progress value={cards.length > 0 ? ((activeIndex + 1) / cards.length) * 100 : 0} className="h-2 w-full mx-auto" />
                     </div>
-                ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center perspective-1000">
 
-                        {/* 3D CARD CONTAINER */}
-                        {/* 3D CARD CONTAINER */}
-                        <div className="relative w-full max-w-xl h-[400px] cursor-pointer group perspective-1000 mx-auto" onClick={toggleFlip}>
-                            <AnimatePresence initial={false} mode="wait" custom={direction}>
-                                <motion.div
-                                    key={activeIndex} // Trigger animation on index change
-                                    custom={direction}
-                                    variants={variants}
-                                    initial="enter"
-                                    animate="center"
-                                    exit="exit"
-                                    className="absolute inset-0 w-full h-full preserve-3d"
-                                    style={{ transformStyle: 'preserve-3d' }}
-                                >
-                                    <motion.div
-                                        className="w-full h-full relative preserve-3d transition-all duration-500"
-                                        animate={{ rotateY: isFlipped ? 180 : 0 }}
-                                        transition={{ duration: 0.4, type: "spring", stiffness: 260, damping: 20 }}
-                                        style={{ transformStyle: 'preserve-3d' }}
-                                    >
-                                        {/* BACK (Resposta) */}
-                                        <div
-                                            className="absolute inset-0 w-full h-full bg-slate-50 dark:bg-slate-900 rounded-2xl shadow-xl border-2 border-indigo-100 dark:border-indigo-900 flex flex-col items-center justify-center p-8 text-center"
-                                            style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden' }}
+                    {
+                        cards.length === 0 ? (
+                            <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-8 bg-slate-50 dark:bg-slate-900/50">
+                                <Brain className="h-16 w-16 text-slate-300 mb-4" />
+                                <h2 className="text-xl font-semibold mb-2">Este baralho está vazio</h2>
+                                <p className="text-slate-500 mb-6 text-center max-w-sm">Use a IA para gerar conteúdo automaticamente ou adicione cards manualmente.</p>
+                                <Button onClick={() => setIsAiModalOpen(true)} className="bg-indigo-600">
+                                    <Sparkles className="mr-2" /> Gerar Conteúdo com IA
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center perspective-1000">
+
+                                {/* 3D CARD CONTAINER */}
+                                {/* 3D CARD CONTAINER */}
+                                <div className="relative w-full max-w-xl h-[400px] cursor-pointer group perspective-1000 mx-auto" onClick={toggleFlip}>
+                                    <AnimatePresence initial={false} mode="wait" custom={direction}>
+                                        <motion.div
+                                            key={activeIndex} // Trigger animation on index change
+                                            custom={direction}
+                                            variants={variants}
+                                            initial="enter"
+                                            animate="center"
+                                            exit="exit"
+                                            className="absolute inset-0 w-full h-full preserve-3d"
+                                            style={{ transformStyle: 'preserve-3d' }}
                                         >
-                                            <span className="text-xs uppercase tracking-widest text-indigo-500 font-bold mb-4">Resposta</span>
-                                            <div className="text-lg md:text-xl text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                                                <Markdown>{cards[activeIndex].back}</Markdown>
-                                            </div>
-
-                                            {/* RATING WIDGET */}
-                                            <FlashcardRating
-                                                cardId={cards[activeIndex].id}
-                                                initialLikes={cards[activeIndex].likes_count || 0}
-                                                initialDislikes={cards[activeIndex].dislikes_count || 0}
-                                            />
-
-                                            {/* TUTOR BUTTON */}
-                                            <div className="mt-auto pt-4 border-t w-full flex justify-center">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs active:scale-95 transition-transform"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        openTutor()
-                                                    }}
+                                            <motion.div
+                                                className="w-full h-full relative preserve-3d transition-all duration-500"
+                                                animate={{ rotateY: isFlipped ? 180 : 0 }}
+                                                transition={{ duration: 0.4, type: "spring", stiffness: 260, damping: 20 }}
+                                                style={{ transformStyle: 'preserve-3d' }}
+                                            >
+                                                {/* BACK (Resposta) */}
+                                                <div
+                                                    className="absolute inset-0 w-full h-full bg-slate-50 dark:bg-slate-900 rounded-2xl shadow-xl border-2 border-indigo-100 dark:border-indigo-900 flex flex-col items-center justify-center p-8 text-center"
+                                                    style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden' }}
                                                 >
-                                                    <MessageCircle size={14} className="mr-1" /> Explicar este Card
-                                                </Button>
-                                            </div>
-                                        </div>
+                                                    <span className="text-xs uppercase tracking-widest text-indigo-500 font-bold mb-4">Resposta</span>
+                                                    <div className="text-lg md:text-xl text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                                                        <Markdown>{cards[activeIndex].back}</Markdown>
+                                                    </div>
 
-                                        {/* FRONT (Pergunta) */}
-                                        <div
-                                            className="absolute inset-0 w-full h-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl border-2 border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center p-8 text-center"
-                                            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(0deg)' }}
-                                        >
-                                            <span className="text-xs uppercase tracking-widest text-slate-400 font-bold mb-4">Pergunta</span>
-                                            <div className="text-2xl md:text-3xl font-medium text-slate-800 dark:text-slate-100">
-                                                <Markdown>{cards[activeIndex].front}</Markdown>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-auto flex items-center gap-2">
-                                                <RotateCw size={12} /> Clique ou [Espaço] para virar
-                                            </p>
-                                        </div>
-                                    </motion.div>
-                                </motion.div>
-                            </AnimatePresence>
-                        </div>
+                                                    {/* RATING WIDGET */}
+                                                    <FlashcardRating
+                                                        cardId={cards[activeIndex].id}
+                                                        initialLikes={cards[activeIndex].likes_count || 0}
+                                                        initialDislikes={cards[activeIndex].dislikes_count || 0}
+                                                    />
 
-                        {/* CONTROLS */}
-                        <div className="mt-8 flex items-center gap-6">
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="rounded-full w-14 h-14 p-0 border-2 hover:bg-slate-100 hover:scale-105 active:scale-95 transition-all"
-                                onClick={handlePrev}
-                                disabled={activeIndex === 0}
-                                title="Anterior (Seta Esquerda)"
-                            >
-                                <ArrowLeft size={24} />
-                            </Button>
-
-                            <div className="bg-white dark:bg-slate-800 shadow-sm border px-6 py-2 rounded-full font-mono text-sm">
-                                {activeIndex + 1} / {cards.length}
-                            </div>
-
-                            <Button
-                                size="lg"
-                                className="rounded-full w-14 h-14 p-0 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 dark:shadow-none hover:scale-105 active:scale-95 transition-all"
-                                onClick={handleNext}
-                                disabled={activeIndex === cards.length - 1}
-                                title="Próximo (Seta Direita)"
-                            >
-                                <ArrowRight size={24} />
-                            </Button>
-                        </div>
-
-                    </div>
-                )
-            }
-
-            {/* TUTOR SHEET */}
-            <Sheet open={isTutorOpen} onOpenChange={setIsTutorOpen}>
-                <SheetContent className="w-[90vw] sm:w-[600px] md:w-[700px] lg:w-[800px] flex flex-col sm:max-w-none">
-                    <SheetHeader>
-                        <SheetTitle className="flex items-center gap-2">
-                            <Brain className="text-indigo-600" /> Tutor MedAI
-                        </SheetTitle>
-                        <SheetDescription>
-                            Tire dúvidas sobre o conteúdo deste flashcard.
-                        </SheetDescription>
-                    </SheetHeader>
-
-                    <div className="flex-1 my-4 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-4 rounded-lg space-y-4">
-                        {chatMessages.map((msg, i) => (
-                            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`
-                    max-w-[90%] p-3 rounded-lg text-sm
-                    ${msg.role === 'user'
-                                        ? 'bg-indigo-600 text-white rounded-br-none'
-                                        : 'bg-white dark:bg-slate-800 border shadow-sm rounded-bl-none'}
-                  `}>
-                                    <Markdown className={`prose ${msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'} prose-sm max-w-none`}>
-                                        {msg.content}
-                                    </Markdown>
-                                </div>
-                            </div>
-                        ))}
-                        {isChatLoading && (
-                            <div className="flex justify-start">
-                                <div className="bg-white dark:bg-slate-800 border p-3 rounded-lg rounded-bl-none text-sm text-slate-400">
-                                    Digitando...
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex gap-2">
-                        <Input
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            placeholder="Digite sua dúvida..."
-                            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
-                        />
-                        <Button size="icon" onClick={() => handleSendMessage(chatInput)} disabled={isChatLoading}>
-                            <ArrowRight size={18} />
-                        </Button>
-                    </div>
-                </SheetContent>
-            </Sheet>
-
-
-            {/* MANAGE MODAL */}
-            <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
-                <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
-                    <DialogHeader className="flex flex-row items-center justify-between">
-                        <DialogTitle>Gerenciar Cards ({cards.length})</DialogTitle>
-                        <div className="flex items-center gap-2 mr-8">
-                            <Checkbox id="show-answers" checked={showAnswersInManager} onCheckedChange={(c) => setShowAnswersInManager(!!c)} />
-                            <Label htmlFor="show-answers" className="text-xs">Revelar Respostas</Label>
-                        </div>
-                    </DialogHeader>
-
-                    {/* ADD NEW */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border">
-                        <div className="space-y-2">
-                            <Label>Frente (Pergunta)</Label>
-                            <Input value={newFront} onChange={e => setNewFront(e.target.value)} placeholder="Nova pergunta..." />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Verso (Resposta)</Label>
-                            <Input value={newBack} onChange={e => setNewBack(e.target.value)} placeholder="Nova resposta..." />
-                        </div>
-                        <Button className="md:col-span-2 bg-indigo-600" onClick={handleAddCard} disabled={isSavingCard}>
-                            <Plus className="mr-2 h-4 w-4" /> Adicionar Card
-                        </Button>
-                    </div>
-
-                    <ScrollArea className="flex-1 pr-4">
-                        <div className="space-y-4">
-                            {cards.map((card, i) => (
-                                <div key={card.id} className="p-3 border rounded-lg flex flex-col gap-2 group hover:border-indigo-300 transition-colors">
-                                    {editingCardId === card.id ? (
-                                        <div className="space-y-3">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                <Input value={editFront} onChange={e => setEditFront(e.target.value)} />
-                                                <Input value={editBack} onChange={e => setEditBack(e.target.value)} />
-                                            </div>
-                                            <div className="flex gap-2 justify-end">
-                                                <Button size="sm" variant="outline" onClick={() => setEditingCardId(null)}>Cancelar</Button>
-                                                <Button size="sm" className="bg-green-600" onClick={handleUpdateCard}><Save className="h-4 w-4 mr-1" /> Salvar</Button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex justify-between items-start">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-                                                <div>
-                                                    <span className="text-xs font-bold text-indigo-500 uppercase">Frente</span>
-                                                    <p className="text-sm font-medium">{card.front}</p>
+                                                    {/* TUTOR BUTTON */}
+                                                    <div className="mt-auto pt-4 border-t w-full flex justify-center">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs active:scale-95 transition-transform"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                openTutor()
+                                                            }}
+                                                        >
+                                                            <MessageCircle size={14} className="mr-1" /> Explicar este Card
+                                                        </Button>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <span className="text-xs font-bold text-green-500 uppercase">Verso</span>
-                                                    <p className={`text-sm text-slate-600 dark:text-slate-400 ${!showAnswersInManager ? 'blur-sm select-none' : ''}`}>
-                                                        {card.back}
+
+                                                {/* FRONT (Pergunta) */}
+                                                <div
+                                                    className="absolute inset-0 w-full h-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl border-2 border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center p-8 text-center"
+                                                    style={{ backfaceVisibility: 'hidden', transform: 'rotateY(0deg)' }}
+                                                >
+                                                    <span className="text-xs uppercase tracking-widest text-slate-400 font-bold mb-4">Pergunta</span>
+                                                    <div className="text-2xl md:text-3xl font-medium text-slate-800 dark:text-slate-100">
+                                                        <Markdown>{cards[activeIndex].front}</Markdown>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400 mt-auto flex items-center gap-2">
+                                                        <RotateCw size={12} /> Clique ou [Espaço] para virar
                                                     </p>
                                                 </div>
-                                            </div>
-                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Button size="icon" variant="ghost" onClick={() => startEditing(card)}>
-                                                    <Edit className="h-4 w-4 text-slate-400" />
-                                                </Button>
-                                                <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteCard(card.id)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
+                                            </motion.div>
+                                        </motion.div>
+                                    </AnimatePresence>
                                 </div>
-                            ))}
-                        </div>
-                    </ScrollArea>
-                </DialogContent>
-            </Dialog>
 
-            {/* DELETE DECK CONFIRM */}
-            <AlertDialog open={deckToDelete} onOpenChange={setDeckToDelete}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Excluir este baralho?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Todos os cards e seu progresso serão perdidos permanentemente.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDeleteDeck} className="bg-red-600 hover:bg-red-700">
-                            Excluir Tudo
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+                                {/* CONTROLS */}
+                                <div className="mt-8 flex items-center gap-6">
+                                    <Button
+                                        size="lg"
+                                        variant="outline"
+                                        className="rounded-full w-14 h-14 p-0 border-2 hover:bg-slate-100 hover:scale-105 active:scale-95 transition-all"
+                                        onClick={handlePrev}
+                                        disabled={activeIndex === 0}
+                                        title="Anterior (Seta Esquerda)"
+                                    >
+                                        <ArrowLeft size={24} />
+                                    </Button>
+
+                                    <div className="bg-white dark:bg-slate-800 shadow-sm border px-6 py-2 rounded-full font-mono text-sm">
+                                        {activeIndex + 1} / {cards.length}
+                                    </div>
+
+                                    <Button
+                                        size="lg"
+                                        className="rounded-full w-14 h-14 p-0 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 dark:shadow-none hover:scale-105 active:scale-95 transition-all"
+                                        onClick={handleNext}
+                                        disabled={activeIndex === cards.length - 1}
+                                        title="Próximo (Seta Direita)"
+                                    >
+                                        <ArrowRight size={24} />
+                                    </Button>
+                                </div>
+
+                            </div>
+                        )
+                    }
+
+                    {/* TUTOR SHEET */}
+                    <Sheet open={isTutorOpen} onOpenChange={setIsTutorOpen}>
+                        <SheetContent className="w-[90vw] sm:w-[600px] md:w-[700px] lg:w-[800px] flex flex-col sm:max-w-none">
+                            <SheetHeader>
+                                <SheetTitle className="flex items-center gap-2">
+                                    <Brain className="text-indigo-600" /> Tutor MedAI
+                                </SheetTitle>
+                                <SheetDescription>
+                                    Tire dúvidas sobre o conteúdo deste flashcard.
+                                </SheetDescription>
+                            </SheetHeader>
+
+                            <div className="flex-1 my-4 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-4 rounded-lg space-y-4">
+                                {chatMessages.map((msg, i) => (
+                                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`
+                    max-w-[90%] p-3 rounded-lg text-sm
+                    ${msg.role === 'user'
+                                                ? 'bg-indigo-600 text-white rounded-br-none'
+                                                : 'bg-white dark:bg-slate-800 border shadow-sm rounded-bl-none'}
+                  `}>
+                                            <Markdown className={`prose ${msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'} prose-sm max-w-none`}>
+                                                {msg.content}
+                                            </Markdown>
+                                        </div>
+                                    </div>
+                                ))}
+                                {isChatLoading && (
+                                    <div className="flex justify-start">
+                                        <div className="bg-white dark:bg-slate-800 border p-3 rounded-lg rounded-bl-none text-sm text-slate-400">
+                                            Digitando...
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex gap-2">
+                                <Input
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder="Digite sua dúvida..."
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
+                                />
+                                <Button size="icon" onClick={() => handleSendMessage(chatInput)} disabled={isChatLoading}>
+                                    <ArrowRight size={18} />
+                                </Button>
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+
+
+                    {/* MANAGE MODAL */}
+                    <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
+                        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+                            <DialogHeader className="flex flex-row items-center justify-between">
+                                <DialogTitle>Gerenciar Cards ({cards.length})</DialogTitle>
+                                <div className="flex items-center gap-2 mr-8">
+                                    <Checkbox id="show-answers" checked={showAnswersInManager} onCheckedChange={(c) => setShowAnswersInManager(!!c)} />
+                                    <Label htmlFor="show-answers" className="text-xs">Revelar Respostas</Label>
+                                </div>
+                            </DialogHeader>
+
+                            {/* ADD NEW */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border">
+                                <div className="space-y-2">
+                                    <Label>Frente (Pergunta)</Label>
+                                    <Input value={newFront} onChange={e => setNewFront(e.target.value)} placeholder="Nova pergunta..." />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Verso (Resposta)</Label>
+                                    <Input value={newBack} onChange={e => setNewBack(e.target.value)} placeholder="Nova resposta..." />
+                                </div>
+                                <Button className="md:col-span-2 bg-indigo-600" onClick={handleAddCard} disabled={isSavingCard}>
+                                    <Plus className="mr-2 h-4 w-4" /> Adicionar Card
+                                </Button>
+                            </div>
+
+                            <ScrollArea className="flex-1 pr-4">
+                                <div className="space-y-4">
+                                    {cards.map((card, i) => (
+                                        <div key={card.id} className="p-3 border rounded-lg flex flex-col gap-2 group hover:border-indigo-300 transition-colors">
+                                            {editingCardId === card.id ? (
+                                                <div className="space-y-3">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        <Input value={editFront} onChange={e => setEditFront(e.target.value)} />
+                                                        <Input value={editBack} onChange={e => setEditBack(e.target.value)} />
+                                                    </div>
+                                                    <div className="flex gap-2 justify-end">
+                                                        <Button size="sm" variant="outline" onClick={() => setEditingCardId(null)}>Cancelar</Button>
+                                                        <Button size="sm" className="bg-green-600" onClick={handleUpdateCard}><Save className="h-4 w-4 mr-1" /> Salvar</Button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex justify-between items-start">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+                                                        <div>
+                                                            <span className="text-xs font-bold text-indigo-500 uppercase">Frente</span>
+                                                            <p className="text-sm font-medium">{card.front}</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-xs font-bold text-green-500 uppercase">Verso</span>
+                                                            <p className={`text-sm text-slate-600 dark:text-slate-400 ${!showAnswersInManager ? 'blur-sm select-none' : ''}`}>
+                                                                {card.back}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button size="icon" variant="ghost" onClick={() => startEditing(card)}>
+                                                            <Edit className="h-4 w-4 text-slate-400" />
+                                                        </Button>
+                                                        <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteCard(card.id)}>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* DELETE DECK CONFIRM */}
+                    <AlertDialog open={deckToDelete} onOpenChange={setDeckToDelete}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Excluir este baralho?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Todos os cards e seu progresso serão perdidos permanentemente.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDeleteDeck} className="bg-red-600 hover:bg-red-700">
+                                    Excluir Tudo
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </>
+            )}
         </div >
     )
 }

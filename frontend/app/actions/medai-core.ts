@@ -274,10 +274,16 @@ export async function getUsageQuotas() {
 }
 
 // Helper para Embeddings (usado no RAG)
+// IMPORTANTE: gemini-embedding-001 suporta Matryoshka (3072, 1536, 768)
+// Database definida com 768 dimensões - DEVE coincidir
 export async function generateEmbedding(text: string) {
     const genAI = getGenAI()
     const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" })
-    const result = await model.embedContent(text)
+    // outputDimensionality não está nos types do SDK mas é suportado pela API REST
+    const result = await model.embedContent({
+        content: { role: 'user', parts: [{ text }] },
+        outputDimensionality: 768
+    } as any)
     return result.embedding.values
 }
 

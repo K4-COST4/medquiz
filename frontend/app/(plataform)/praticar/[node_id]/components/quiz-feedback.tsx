@@ -1,6 +1,11 @@
+'use client';
+
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, X, ChevronDown, ChevronUp } from "lucide-react";
 import { FormattedText } from "@/components/ui/formatted-text";
+import { parseCommentary } from "@/lib/parse-commentary";
+import { getUserDistractorPreference } from "../actions-feedback";
+import { useState, useEffect } from "react";
 
 interface QuizFeedbackProps {
     isCorrect: boolean;
@@ -9,6 +14,28 @@ interface QuizFeedbackProps {
 }
 
 export const QuizFeedback = ({ isCorrect, commentary, onNext }: QuizFeedbackProps) => {
+    const [showDistractors, setShowDistractors] = useState(true);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Buscar preferência do usuário ao montar
+    useEffect(() => {
+        async function fetchPreference() {
+            try {
+                const preference = await getUserDistractorPreference();
+                setShowDistractors(preference);
+            } catch (error) {
+                console.error('Erro ao buscar preferência:', error);
+                setShowDistractors(true); // Fallback: expandido
+            } finally {
+                setIsLoading(false);
+            }
+        }
+        fetchPreference();
+    }, []);
+
+    // Parsear commentary
+    const { justification, distractors, hasDistractors } = parseCommentary(commentary || '');
+
     return (
         <AnimatePresence>
             <motion.div
@@ -18,17 +45,51 @@ export const QuizFeedback = ({ isCorrect, commentary, onNext }: QuizFeedbackProp
                 className={`fixed bottom-16 md:bottom-0 left-0 w-full p-4 md:p-6 pb-8 border-t-2 z-30 ${isCorrect ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"}`}
             >
                 <div className="max-w-2xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
+                    <div className="flex items-start gap-4 flex-1">
                         <div className={`p-3 rounded-full ${isCorrect ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"}`}>
                             {isCorrect ? <CheckCircle2 size={24} /> : <X size={24} />}
                         </div>
-                        <div>
+                        <div className="flex-1">
                             <h3 className={`font-black text-lg ${isCorrect ? "text-emerald-800" : "text-rose-800"}`}>
                                 {isCorrect ? "Excelente!" : "Resposta Incorreta"}
                             </h3>
-                            {!isCorrect && commentary && (
-                                <div className="text-rose-600 text-sm font-medium mt-1 leading-relaxed max-w-lg">
-                                    <FormattedText text={commentary} />
+
+                            {commentary && (
+                                <div className={`${isCorrect ? "text-emerald-700" : "text-rose-700"} text-sm font-medium mt-2 leading-relaxed max-w-lg`}>
+                                    {/* Justificativa (sempre visível) */}
+                                    <FormattedText text={justification} />
+
+                                    {/* Seção colapsável de distratores */}
+                                    {hasDistractors && !isLoading && (
+                                        <div className="mt-3">
+                                            <button
+                                                onClick={() => setShowDistractors(!showDistractors)}
+                                                className={`flex items-center gap-2 font-semibold transition-colors ${isCorrect
+                                                        ? "text-emerald-800 hover:text-emerald-900"
+                                                        : "text-rose-800 hover:text-rose-900"
+                                                    }`}
+                                            >
+                                                {showDistractors ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                                Por que as outras estão erradas?
+                                            </button>
+
+                                            <AnimatePresence>
+                                                {showDistractors && (
+                                                    <motion.div
+                                                        initial={{ height: 0, opacity: 0 }}
+                                                        animate={{ height: "auto", opacity: 1 }}
+                                                        exit={{ height: 0, opacity: 0 }}
+                                                        transition={{ duration: 0.2 }}
+                                                        className="overflow-hidden"
+                                                    >
+                                                        <div className="mt-2 pt-2 border-t border-current/20">
+                                                            <FormattedText text={distractors} />
+                                                        </div>
+                                                    </motion.div>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

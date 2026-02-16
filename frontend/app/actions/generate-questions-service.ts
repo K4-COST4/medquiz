@@ -40,20 +40,19 @@ export async function getOrGenerateQuestions(params: GenerationParams) {
     // =========================================================
     // PASSO 1: VERIFICAÇÃO DE CACHE DE TRILHA (Cópia Local)
     // =========================================================
-    // Se o caller especificou "neededDifficulties", significa que ele JÁ verificou (via RPC)
-    // e sabe que faltam questões. Nesse caso, ignoramos o cache simples.
-    const shouldSkipCache = neededDifficulties && neededDifficulties.length > 0;
+    // SEMPRE verificar cache primeiro, independente de neededDifficulties
+    const { data: existingQuestions } = await supabase
+        .from('track_questions')
+        .select('*')
+        .eq('node_id', nodeId);
 
-    if (!shouldSkipCache) {
-        const { data: existingQuestions } = await supabase
-            .from('track_questions')
-            .select('*')
-            .eq('node_id', nodeId);
-
-        if (existingQuestions && existingQuestions.length > 0) {
-            return { success: true, count: existingQuestions.length, data: existingQuestions, fromCache: true };
-        }
+    if (existingQuestions && existingQuestions.length > 0) {
+        console.log(`✅ Cache hit: ${existingQuestions.length} questões encontradas em track_questions para node ${nodeId}`);
+        return { success: true, count: existingQuestions.length, data: existingQuestions, fromCache: true };
     }
+
+    // Se não há cache, continua para geração
+    console.log(`🔄 Cache miss: gerando questões para node ${nodeId}`);
 
     // =========================================================
     // PASSO 2: PREPARAÇÃO DO CONTEXTO (Dados do Nó)

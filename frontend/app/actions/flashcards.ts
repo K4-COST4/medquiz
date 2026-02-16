@@ -27,6 +27,7 @@ export interface Flashcard {
   deck_id: string;
   likes_count: number;
   dislikes_count: number;
+  media_refs?: string[]; // Storage paths, NOT URLs
 }
 
 export interface DeckFormData {
@@ -335,4 +336,37 @@ export async function rateFlashcard(cardId: string, type: 'like' | 'dislike') {
   // Não precisa revalidatePath agressivo aqui para não quebrar o fluxo de estudo visualmente,
   // mas se quiser atualizar o contador na tela:
   return { success: true, newCounts: updates };
+}
+
+// 11. OBTER ESTATÍSTICAS DO DECK
+export async function getDeckStats(deckId: string) {
+  const supabase = await createClient();
+
+  // Buscar cards do deck
+  const { data: cards, error } = await supabase
+    .from('flashcards')
+    .select('likes_count, dislikes_count')
+    .eq('deck_id', deckId);
+
+  if (error || !cards) {
+    return {
+      totalCards: 0,
+      approvalRate: 0,
+      totalLikes: 0,
+      totalDislikes: 0,
+    };
+  }
+
+  const totalCards = cards.length;
+  const totalLikes = cards.reduce((sum, card) => sum + (card.likes_count || 0), 0);
+  const totalDislikes = cards.reduce((sum, card) => sum + (card.dislikes_count || 0), 0);
+  const totalVotes = totalLikes + totalDislikes;
+  const approvalRate = totalVotes > 0 ? (totalLikes / totalVotes) * 100 : 0;
+
+  return {
+    totalCards,
+    approvalRate,
+    totalLikes,
+    totalDislikes,
+  };
 }

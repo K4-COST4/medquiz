@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, LogOut, Zap, User,
   Brain, Shield, Award, Flame, Target, Settings, Crown,
@@ -57,11 +57,15 @@ export default function PerfilPage() {
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados de Edição
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
+
+  // Estados de Configurações
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDistractors, setShowDistractors] = useState(true);
+  const [isUpdatingPref, setIsUpdatingPref] = useState(false);
 
   useEffect(() => {
     async function getData() {
@@ -90,6 +94,7 @@ export default function PerfilPage() {
 
       setPerfil(perfilData);
       setTempName(perfilData.nome);
+      setShowDistractors(perfilData.show_distractors_expanded ?? true);
       setLoading(false);
     }
     getData();
@@ -125,6 +130,22 @@ export default function PerfilPage() {
   async function sair() {
     await supabase.auth.signOut();
     router.push("/login");
+  }
+
+  async function toggleDistractorPreference(value: boolean) {
+    setIsUpdatingPref(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ show_distractors_expanded: value })
+      .eq('id', user.id);
+
+    if (!error) {
+      setShowDistractors(value);
+      setPerfil({ ...perfil, show_distractors_expanded: value });
+    } else {
+      alert("Erro ao salvar preferência. Tente novamente.");
+    }
+    setIsUpdatingPref(false);
   }
 
   if (loading) {
@@ -311,15 +332,62 @@ export default function PerfilPage() {
             </Link>
           </div>
 
-          <button
-            className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between text-slate-600 font-bold hover:bg-slate-50 transition-colors group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="bg-slate-100 p-2 rounded-lg text-slate-500 group-hover:text-violet-600 transition-colors"><Settings size={20} /></div>
-              <span>Configurações da Conta</span>
-            </div>
-            <ArrowLeft size={16} className="rotate-180 text-slate-300" />
-          </button>
+          {/* CONFIGURAÇÕES COLAPSÁVEIS */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="w-full p-4 flex items-center justify-between text-slate-600 font-bold hover:bg-slate-50 transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-slate-100 p-2 rounded-lg text-slate-500 group-hover:text-violet-600 transition-colors">
+                  <Settings size={20} />
+                </div>
+                <span>Configurações da Conta</span>
+              </div>
+              <motion.div
+                animate={{ rotate: showSettings ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ArrowLeft size={16} className="rotate-180 text-slate-300" />
+              </motion.div>
+            </button>
+
+            <AnimatePresence>
+              {showSettings && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden border-t border-slate-100"
+                >
+                  <div className="p-4 space-y-4">
+                    {/* Toggle de Distratores */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h4 className="text-sm font-bold text-slate-700">Mostrar distratores expandidos</h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Exibe "Por que as outras estão erradas?" expandido por padrão ao responder questões
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => toggleDistractorPreference(!showDistractors)}
+                        disabled={isUpdatingPref}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${showDistractors ? "bg-violet-500" : "bg-slate-300"
+                          } ${isUpdatingPref ? "opacity-50 cursor-not-allowed" : ""}`}
+                      >
+                        <motion.div
+                          animate={{ x: showDistractors ? 24 : 2 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                          className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-md"
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <button
             onClick={sair}

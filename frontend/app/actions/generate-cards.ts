@@ -8,11 +8,9 @@ import { AI_CONTEXTS } from "@/lib/ai-prompts";
 
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
-// Interface do retorno
-export interface GeneratedCard {
-    front: string;
-    back: string;
-}
+// Re-export type from centralized location
+export type { GeneratedCard } from '@/lib/flashcard-validation';
+import type { GeneratedCard } from '@/lib/flashcard-validation';
 
 export async function generateFlashcardsAI({
     topic,
@@ -21,7 +19,8 @@ export async function generateFlashcardsAI({
     difficulty,
     amount,
     fileBase64, // Legacy (Mantido por compatibilidade, mas preferimos StoragePath)
-    deckId // Novo: Se passado, buscaremos o arquivo do deck
+    deckId, // Novo: Se passado, buscaremos o arquivo do deck
+    skipQuota = false // Quando chamado pelo batching, pular quota (gerenciada no nível superior)
 }: {
     topic: string,
     details?: string,
@@ -29,8 +28,25 @@ export async function generateFlashcardsAI({
     difficulty: 'easy' | 'medium' | 'hard' | 'mixed',
     amount: number,
     fileBase64?: string,
-    deckId?: string
+    deckId?: string,
+    skipQuota?: boolean
 }) {
+    // ========================================================================
+    // VALIDAÇÃO DE INPUT
+    // ========================================================================
+    const MAX_CARDS = 50;
+    const MIN_CARDS = 5;
+
+    if (amount > MAX_CARDS) {
+        return { success: false, error: `Máximo de ${MAX_CARDS} cards por geração` };
+    }
+    if (amount < MIN_CARDS) {
+        return { success: false, error: `Mínimo de ${MIN_CARDS} cards` };
+    }
+
+    // ========================================================================
+    // SETUP
+    // ========================================================================
     let inlineData = undefined;
     let fileContextInstruction = "";
     let googleFileUri = null;
@@ -41,26 +57,31 @@ export async function generateFlashcardsAI({
     }
 
     // --- MANUAL QUOTA CHECK (Flashcards: 1/day) ---
-    // Como estamos bypassando o askMedAI para usar File API, precisamos checar manualmente.
+    // Quando skipQuota=true (chamado pelo batching), pula check e increment
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) return { success: false, error: "Não autorizado." };
 
     const today = new Date().toISOString().split('T')[0];
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('daily_flashcards_count, ai_usage_date')
-        .eq('id', user.id)
-        .single();
+    let profile: any = null;
 
-    if (profile) {
-        let flashCount = 0;
-        if (profile.ai_usage_date === today) {
-            flashCount = profile.daily_flashcards_count || 0;
-        }
-        if (flashCount >= 1) { // LIMITS.flashcard = 1
-            return { success: false, error: "Limite diário de Flashcards atingido (1 por dia)." };
+    if (!skipQuota) {
+        const { data: fetchedProfile } = await supabase
+            .from('profiles')
+            .select('daily_flashcards_count, ai_usage_date')
+            .eq('id', user.id)
+            .single();
+        profile = fetchedProfile;
+
+        if (profile) {
+            let flashCount = 0;
+            if (profile.ai_usage_date === today) {
+                flashCount = profile.daily_flashcards_count || 0;
+            }
+            if (flashCount >= 1) { // LIMITS.flashcard = 1
+                return { success: false, error: "Limite diário de Flashcards atingido (1 por dia)." };
+            }
         }
     }
     // ---------------------------------------------------
@@ -213,24 +234,19 @@ export async function generateFlashcardsAI({
         const result = await model.generateContent(parts);
         let finalText = result.response.text();
 
-        // Parse JSON
-        // Com responseMimeType="application/json", o texto deve vir limpo, mas prevenção nunca é demais.
-        const cleanJson = finalText.replace(/```json|```/g, '').trim();
-        const cards = JSON.parse(cleanJson);
+        // Parse JSON com auto-repair (3 níveis de fallback)
+        const { parseWithRepair } = await import('@/lib/flashcard-validation');
+        const cards = parseWithRepair(finalText);
 
-        // Cleanup Google File
-        if (googleFileUri) {
-            await fileManager.deleteFile(googleFileUri.split('/').pop()!); // Pega o nome "files/..."
-        }
+        // Cleanup Google File (safe delete)
+        await safeDeleteGoogleFile(googleFileUri);
 
-        // MANUAL QUOTA INCREMENT
-        if (user && profile) {
-            // Se mudou o dia, reseta geral. Se é o mesmo dia, incrementa flashcard.
-            // Recalcula para garantir consistência com medai-core
+        // MANUAL QUOTA INCREMENT (skip se batching gerencia)
+        if (!skipQuota && user && profile) {
             const updates: any = { ai_usage_date: today };
             const currentFlash = (profile.ai_usage_date === today) ? (profile.daily_flashcards_count || 0) : 0;
             updates.daily_flashcards_count = currentFlash + 1;
-            if (profile.ai_usage_date !== today) updates.ai_usage_count = 0; // Reset geral se virou dia
+            if (profile.ai_usage_date !== today) updates.ai_usage_count = 0;
 
             await supabase.from('profiles').update(updates).eq('id', user.id);
         }
@@ -238,6 +254,35 @@ export async function generateFlashcardsAI({
         return { success: true, cards: cards as GeneratedCard[] };
 
     } catch (e: any) {
+        // Cleanup Google File em caso de erro
+        await safeDeleteGoogleFile(googleFileUri);
         return { success: false, error: "Erro na geração com arquivo: " + e.message };
+    }
+}
+
+// ============================================================================
+// SAFE DELETE GOOGLE FILE
+// ============================================================================
+
+async function safeDeleteGoogleFile(fileUri: string | null) {
+    if (!fileUri) return;
+
+    try {
+        // Extrair fileId de forma segura
+        const parts = fileUri.split('/');
+        const fileId = parts[parts.length - 1];
+
+        if (!fileId || fileId.length < 10) {
+            console.warn('⚠️ Invalid fileId extracted:', fileId, 'from:', fileUri);
+            return;
+        }
+
+        await fileManager.deleteFile(fileId);
+        console.log('✅ Google file deleted:', fileId);
+
+    } catch (error) {
+        // Não falhar a geração por não conseguir deletar
+        console.error('⚠️ Failed to delete Google file:', fileUri, error);
+        // TODO: Logar em sistema de monitoramento para limpeza manual
     }
 }
