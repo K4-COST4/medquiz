@@ -4,8 +4,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { createClient } from "@/utils/supabase/server"
 import { AI_CONTEXTS, type AIContextKey } from "@/lib/ai-prompts"
 import { MedAIResponse } from "@/types/medai"
+import { AI_CONFIG } from "@/lib/ai-config"
+import { QUOTA_LIMITS } from "@/lib/quota"
 
-const DAILY_LIMIT = 50
+const DAILY_LIMIT = QUOTA_LIMITS.general
 
 interface MedAIOptions {
     contextKey: AIContextKey
@@ -16,14 +18,10 @@ interface MedAIOptions {
     systemInstructionArgs?: string
     inlineData?: { data: string, mimeType: string }
     skipQuota?: boolean
-    quotaType?: 'general' | 'flashcard' | 'track' | 'unlimited'
+    quotaType?: 'general' | 'flashcard' | 'track' | 'clinical' | 'unlimited'
 }
 
-const LIMITS = {
-    general: 10,
-    flashcard: 1,
-    track: 1 // 1 per week
-};
+const LIMITS = QUOTA_LIMITS;
 
 const getGenAI = () => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
@@ -49,7 +47,7 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
     } else {
         const { data: fetchedProfile } = await supabase
             .from('profiles')
-            .select('ai_usage_count, ai_usage_date, daily_flashcards_count, last_track_generation_date')
+            .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, last_track_generation_date')
             .eq('id', user.id)
             .single()
 
@@ -90,12 +88,22 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
                     return { success: false, message: "Limite diário geral atingido.", limitReached: true, usesLeft: 0 };
                 }
             }
+            // D. CLINICAL (3 por dia)
+            else if (quotaType === 'clinical') {
+                let clinicalCount = 0;
+                if (profile.ai_usage_date === today) {
+                    clinicalCount = profile.daily_clinical_count || 0;
+                }
+                if (clinicalCount >= LIMITS.clinical && !options.skipQuota) {
+                    return { success: false, message: "Limite diário de treinos clínicos atingido (3 por dia).", limitReached: true, usesLeft: 0 };
+                }
+            }
         }
     }
 
     try {
         const genAI = getGenAI()
-        const modelName = options.modelName || "gemini-3-flash-preview"
+        const modelName = options.modelName || AI_CONFIG.chatModel
 
         let systemPrompt = AI_CONTEXTS[options.contextKey]
         if (options.systemInstructionArgs) {
@@ -278,11 +286,11 @@ export async function getUsageQuotas() {
 // Database definida com 768 dimensões - DEVE coincidir
 export async function generateEmbedding(text: string) {
     const genAI = getGenAI()
-    const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" })
+    const model = genAI.getGenerativeModel({ model: AI_CONFIG.embeddingModel })
     // outputDimensionality não está nos types do SDK mas é suportado pela API REST
     const result = await model.embedContent({
         content: { role: 'user', parts: [{ text }] },
-        outputDimensionality: 768
+        outputDimensionality: AI_CONFIG.embeddingDimensions
     } as any)
     return result.embedding.values
 }

@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/utils/supabase/admin";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ActionResponse } from "@/types/medai";
+import { AI_CONFIG } from "@/lib/ai-config";
 
 // ============================================
 // CONFIGURAÇÃO OTIMIZADA PARA GEMINI SPECS
@@ -116,7 +117,7 @@ async function processChunkWithRetry(
         try {
             const result = await model.embedContent({
                 content: { role: 'user', parts: [{ text: chunk }] },
-                outputDimensionality: 768
+                outputDimensionality: AI_CONFIG.embeddingDimensions
             } as any);
             return result.embedding.values;
         } catch (error: any) {

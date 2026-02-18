@@ -7,6 +7,7 @@ import {
   Zap,
   Swords,
   Target,
+  Stethoscope,
 } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -61,6 +62,16 @@ export default function PraticarPage() {
       color: "text-amber-600",
       iconBg: "bg-amber-100",
       href: "/praticar/flashcard",
+      status: "active"
+    },
+    {
+      id: "treino-clinico",
+      title: "Treino Clínico",
+      description: "Converse com pacientes virtuais, pratique anamnese e receba avaliação com rubrica de semiologia.",
+      icon: Stethoscope,
+      color: "text-teal-600",
+      iconBg: "bg-teal-100",
+      href: "/treino-clinico",
       status: "active"
     },
     {

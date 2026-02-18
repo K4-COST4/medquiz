@@ -5,6 +5,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { AI_CONFIG } from '@/lib/ai-config';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -16,13 +17,13 @@ export async function generateEmbeddingBatch(texts: string[]): Promise<number[][
         return [];
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+    const model = genAI.getGenerativeModel({ model: AI_CONFIG.embeddingModel });
 
     try {
-        // Gerar todos embeddings em paralelo (768 dims para coincidir com DB)
+        // Gerar todos embeddings em paralelo (dims configuráveis via AI_CONFIG)
         const promises = texts.map(text => model.embedContent({
             content: { role: 'user', parts: [{ text }] },
-            outputDimensionality: 768
+            outputDimensionality: AI_CONFIG.embeddingDimensions
         } as any));
         const results = await Promise.all(promises);
 

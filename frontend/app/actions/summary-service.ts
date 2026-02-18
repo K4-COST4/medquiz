@@ -4,6 +4,7 @@ import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 import { askMedAI } from "./medai-core";
 import { getEnhancedContext } from "./medai-rag";
+import { AI_CONFIG } from "@/lib/ai-config";
 
 export async function getOrGenerateSummary(lessonId: string) {
     noStore();
@@ -42,7 +43,7 @@ export async function getOrGenerateSummary(lessonId: string) {
         const aiResponse = await askMedAI({
             contextKey: 'summary_generator',
             userMessage: `Título: "${lesson.title}"\nContexto Pedagógico: "${lesson.ai_context || "Aborde os conceitos fundamentais."}"\n\n${ragContext}`,
-            modelName: "gemini-3-flash-preview",
+            modelName: AI_CONFIG.chatModel,
             quotaType: 'general'
         });
 

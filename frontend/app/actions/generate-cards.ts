@@ -1,10 +1,12 @@
 'use server'
 
-import { askMedAI } from "./medai-core"
 import { getEnhancedContext } from "@/app/actions/medai-rag"
 import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { createClient } from "@/utils/supabase/server";
 import { AI_CONTEXTS } from "@/lib/ai-prompts";
+import { AI_CONFIG } from "@/lib/ai-config";
+import { checkQuota, consumeQuota } from "@/lib/quota";
+import { flashcardTelemetry } from "@/lib/telemetry";
 
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
@@ -18,9 +20,9 @@ export async function generateFlashcardsAI({
     references,
     difficulty,
     amount,
-    fileBase64, // Legacy (Mantido por compatibilidade, mas preferimos StoragePath)
-    deckId, // Novo: Se passado, buscaremos o arquivo do deck
-    skipQuota = false // Quando chamado pelo batching, pular quota (gerenciada no nível superior)
+    fileBase64,
+    deckId,
+    skipQuota = false
 }: {
     topic: string,
     details?: string,
@@ -31,6 +33,8 @@ export async function generateFlashcardsAI({
     deckId?: string,
     skipQuota?: boolean
 }) {
+    const startTime = Date.now();
+
     // ========================================================================
     // VALIDAÇÃO DE INPUT
     // ========================================================================
@@ -45,77 +49,52 @@ export async function generateFlashcardsAI({
     }
 
     // ========================================================================
-    // SETUP
+    // AUTH
+    // ========================================================================
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Não autorizado." };
+
+    // ========================================================================
+    // QUOTA CHECK (Centralizada via lib/quota.ts)
+    // ========================================================================
+    if (!skipQuota) {
+        const quotaResult = await checkQuota(user.id, 'flashcard');
+        flashcardTelemetry.quotaCheck({
+            userId: user.id,
+            type: 'flashcard',
+            allowed: quotaResult.allowed,
+            remaining: quotaResult.remaining,
+        });
+        if (!quotaResult.allowed) {
+            return { success: false, error: quotaResult.error || 'Limite atingido.' };
+        }
+    }
+
+    // ========================================================================
+    // SETUP (File handling)
     // ========================================================================
     let inlineData = undefined;
     let fileContextInstruction = "";
-    let googleFileUri = null;
+    let googleFileUri: string | null = null;
 
     // A. Tenta usar o arquivo do DECK (Storage -> Google File API) 📁
     if (deckId) {
-        // ... (existing deck logic)
-    }
-
-    // --- MANUAL QUOTA CHECK (Flashcards: 1/day) ---
-    // Quando skipQuota=true (chamado pelo batching), pula check e increment
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) return { success: false, error: "Não autorizado." };
-
-    const today = new Date().toISOString().split('T')[0];
-    let profile: any = null;
-
-    if (!skipQuota) {
-        const { data: fetchedProfile } = await supabase
-            .from('profiles')
-            .select('daily_flashcards_count, ai_usage_date')
-            .eq('id', user.id)
-            .single();
-        profile = fetchedProfile;
-
-        if (profile) {
-            let flashCount = 0;
-            if (profile.ai_usage_date === today) {
-                flashCount = profile.daily_flashcards_count || 0;
-            }
-            if (flashCount >= 1) { // LIMITS.flashcard = 1
-                return { success: false, error: "Limite diário de Flashcards atingido (1 por dia)." };
-            }
-        }
-    }
-    // ---------------------------------------------------
-
-    if (deckId) {
-        // Re-get deck logic inside the scope if needed or just continue since we have supabase client now
         const { data: deck } = await supabase.from('decks').select('temp_file_path, file_uploaded_at').eq('id', deckId).single();
         if (deck && deck.temp_file_path) {
-            // ... existing logic ...
-
-            // 1. Verifica Validade (7 dias)
             const uploadDate = new Date(deck.file_uploaded_at);
-            const now = new Date();
-            const diffDays = (now.getTime() - uploadDate.getTime()) / (1000 * 3600 * 24);
+            const diffDays = (Date.now() - uploadDate.getTime()) / (1000 * 3600 * 24);
 
             if (diffDays > 7) {
-                // Expirado: Ignora silenciosamente ou avisa? 
-                // O frontend já deve ter avisado, mas aqui garantimos que não usa arquivo velho.
-                console.log("Arquivo expirado ignorado na geração.");
+                flashcardTelemetry.error('generate-cards', 'expired_file', new Error('Arquivo expirado ignorado'));
             } else {
-                // 2. Download do Supabase
                 const { data: fileBlob, error } = await supabase.storage.from('deck-attachments').download(deck.temp_file_path);
 
                 if (fileBlob && !error) {
                     try {
-                        // 3. Upload para Google AI File Manager (Temporário)
-                        // Precisamos converter Blob para um path local ou buffer. 
-                        // O SDK Node do Google geralmente pede path. Vamos usar um truque ou buffer se suporte.
-                        // Como estamos em Server Action Vercel/Next, escrever em disco é limitado (/tmp).
-
                         const arrayBuffer = await fileBlob.arrayBuffer();
                         const buffer = Buffer.from(arrayBuffer);
 
-                        // Workaround: Escrever em /tmp para enviar
                         const fs = require('fs');
                         const path = require('path');
                         const tmpPath = path.join('/tmp', `upload-${Date.now()}.pdf`);
@@ -128,8 +107,6 @@ export async function generateFlashcardsAI({
 
                         googleFileUri = uploadResponse.file.uri;
 
-                        // Esperar processamento? PDF costuma ser instantâneo.
-
                         fileContextInstruction = `
                         IMPORTANTE - FONTE DE DADOS (ARQUIVO ANEXADO VIA FILE API):
                         - O usuário anexou um PDF de referência que a IA já processou.
@@ -137,44 +114,35 @@ export async function generateFlashcardsAI({
                         - Ignore conhecimentos gerais que contradigam o arquivo.
                         `;
 
-                        // Limpa tmp
                         fs.unlinkSync(tmpPath);
-
                     } catch (e) {
-                        console.error("Erro no fluxo Google File API:", e);
-                        // Fallback: Segue sem arquivo se der erro
+                        flashcardTelemetry.error('generate-cards', 'google_file_api_upload', e);
                     }
                 }
             }
         }
     }
 
-    // B. Fallback para Base64 (Legacy - Pequenos arquivos)
+    // B. Fallback para Base64 (Legacy)
     if (!googleFileUri && fileBase64) {
         const base64Data = fileBase64.split(',')[1] || fileBase64;
-        inlineData = {
-            data: base64Data,
-            mimeType: "application/pdf"
-        };
-        fileContextInstruction = `
-        IMPORTANTE: Use o documento PDF fornecido (base64) como fonte primária.
-        `;
+        inlineData = { data: base64Data, mimeType: "application/pdf" };
+        fileContextInstruction = `IMPORTANTE: Use o documento PDF fornecido (base64) como fonte primária.`;
     }
 
-    // 2. DEFINE REFERÊNCIAS
+    // ========================================================================
+    // BUILD PROMPT
+    // ========================================================================
     const referencesText = (googleFileUri || fileBase64)
         ? "Baseie-se estritamente no documento em anexo."
         : (references ? `Baseie-se em: ${references}` : "Baseie-se em Diretrizes (SBC/AMB), Guyton & Hall e Harrison.");
 
-    // 3. DEFINE DIFICULDADE
     const difficultyInstruction = difficulty === 'mixed'
-        ? "Varie a dificuldade: 30% fáceis (conceitos básicos), 40% médios (aplicação) e 30% difíceis (casos clínicos)."
+        ? "Varie a dificuldade: 40% fáceis/diretos (recall puro, conceitos básicos), 40% médios (aplicação, fisiopatologia) e 20% difíceis (casos clínicos complexos, conduta)."
         : `Nível de dificuldade: ${difficulty === 'hard' ? 'Especialista/Residência' : difficulty === 'medium' ? 'Graduação em Medicina' : 'Básico'}.`;
 
-    // 4. RAG CONTEXT (Secundário)
     const ragContext = await getEnhancedContext(topic);
 
-    // 5. MONTA O PROMPT FINAL
     const userMessage = `
       TÓPICO: "${topic}"
       QUANTIDADE: ${amount}
@@ -187,31 +155,25 @@ export async function generateFlashcardsAI({
       - Detalhes/Foco: ${details || "Foco em raciocínio clínico, fisiopatologia e conduta."}
       - Referências: ${referencesText}
       - Dificuldade: ${difficultyInstruction}
-    `
+    `;
 
-    // 6. CHAMA O CORE
-    // Se tiver googleFileUri, precisamos passar de um jeito especial para o 'askMedAI' ou chamar o modelo direto aqui.
-    // O 'askMedAI' atual não suporta 'fileUri' direto na interface. Vamos adaptar ou chamar direto.
-    // Para simplificar e manter o controle de quota centralizado, vamos adicionar suporte a 'fileUri' no askMedAI? 
-    // Melhor: vamos passar como systemInstructionArgs ou adaptar o askMedAI. 
-    // Mas wait, askMedAI usa 'inlineData'. File API usa 'fileData'.
-
-    // Vou usar askMedAI mas passar um 'systemInstructionArgs' bombado? Não, fileData é parte do conteudo do user/model.
-    // Vamos chamar askMedAI passando um parametro novo 'fileDataPart'.
-
-    // (Ajuste rápido: vou instanciar o modelo aqui se tiver arquivo, para não refatorar o medai-core inteiro agora, 
-    // mas o ideal seria atualizar o core. Como o user pediu "passos", vou fazer funcionar aqui primeiro).
-
-    // *Importante*: O askMedAI faz controle de quota. Se eu pular ele, perco o controle.
-    // Vamos modificar o askMedAI no futuro. Por agora, vou assumir que se tem arquivo, é um "Special Generation".
-
-    // ... Implementação direta com GoogleGenerativeAI aqui para suportar File API ...
+    // ========================================================================
+    // TELEMETRIA + GERAÇÃO
+    // ========================================================================
+    const modelName = AI_CONFIG.flashcardModel;
+    flashcardTelemetry.generationStart({
+        topic,
+        amount,
+        difficulty,
+        hasFile: !!(googleFileUri || fileBase64),
+        model: modelName,
+    });
 
     try {
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({
-            model: "gemini-3-flash-preview", // Reverted to stable model for consistency, or keep user's if valid
+            model: modelName,
             systemInstruction: AI_CONTEXTS.flashcard_creator,
             generationConfig: {
                 responseMimeType: "application/json"
@@ -221,16 +183,12 @@ export async function generateFlashcardsAI({
         const parts: any[] = [{ text: userMessage }];
         if (googleFileUri) {
             parts.unshift({
-                fileData: {
-                    mimeType: "application/pdf",
-                    fileUri: googleFileUri
-                }
+                fileData: { mimeType: "application/pdf", fileUri: googleFileUri }
             });
         } else if (inlineData) {
             parts.unshift({ inlineData });
         }
 
-        // Gera
         const result = await model.generateContent(parts);
         let finalText = result.response.text();
 
@@ -238,23 +196,28 @@ export async function generateFlashcardsAI({
         const { parseWithRepair } = await import('@/lib/flashcard-validation');
         const cards = parseWithRepair(finalText);
 
-        // Cleanup Google File (safe delete)
+        const duration = Date.now() - startTime;
+        flashcardTelemetry.generationEnd({
+            topic,
+            requested: amount,
+            generated: cards.length,
+            duration_ms: duration,
+            parseMethod: 'json',
+        });
+
+        // Cleanup Google File
         await safeDeleteGoogleFile(googleFileUri);
 
-        // MANUAL QUOTA INCREMENT (skip se batching gerencia)
-        if (!skipQuota && user && profile) {
-            const updates: any = { ai_usage_date: today };
-            const currentFlash = (profile.ai_usage_date === today) ? (profile.daily_flashcards_count || 0) : 0;
-            updates.daily_flashcards_count = currentFlash + 1;
-            if (profile.ai_usage_date !== today) updates.ai_usage_count = 0;
-
-            await supabase.from('profiles').update(updates).eq('id', user.id);
+        // Quota consume (centralizado)
+        if (!skipQuota) {
+            await consumeQuota(user.id, 'flashcard');
         }
 
         return { success: true, cards: cards as GeneratedCard[] };
 
     } catch (e: any) {
-        // Cleanup Google File em caso de erro
+        const duration = Date.now() - startTime;
+        flashcardTelemetry.error('generate-cards', `generation_failed after ${duration}ms`, e);
         await safeDeleteGoogleFile(googleFileUri);
         return { success: false, error: "Erro na geração com arquivo: " + e.message };
     }
@@ -263,26 +226,17 @@ export async function generateFlashcardsAI({
 // ============================================================================
 // SAFE DELETE GOOGLE FILE
 // ============================================================================
-
 async function safeDeleteGoogleFile(fileUri: string | null) {
     if (!fileUri) return;
-
     try {
-        // Extrair fileId de forma segura
         const parts = fileUri.split('/');
         const fileId = parts[parts.length - 1];
-
         if (!fileId || fileId.length < 10) {
-            console.warn('⚠️ Invalid fileId extracted:', fileId, 'from:', fileUri);
+            flashcardTelemetry.error('generate-cards', 'invalid_file_id', new Error(`Invalid fileId: ${fileId}`));
             return;
         }
-
         await fileManager.deleteFile(fileId);
-        console.log('✅ Google file deleted:', fileId);
-
     } catch (error) {
-        // Não falhar a geração por não conseguir deletar
-        console.error('⚠️ Failed to delete Google file:', fileUri, error);
-        // TODO: Logar em sistema de monitoramento para limpeza manual
+        flashcardTelemetry.error('generate-cards', 'file_delete_failed', error);
     }
 }

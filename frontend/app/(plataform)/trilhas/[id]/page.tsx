@@ -1,10 +1,11 @@
 import { createClient } from "@/utils/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Folder, BookOpen, Clock, Activity, Brain, Dna, Tablet, Heart, Stethoscope, Syringe, FileText, ChevronRight, GraduationCap, MessageSquareDashed } from "lucide-react";
+import { ChevronLeft, Folder, BookOpen, Clock, Activity, Brain, Dna, Tablet, Heart, Stethoscope, Syringe, FileText, ChevronRight, GraduationCap } from "lucide-react";
 import { LessonAccordion } from "@/components/tracks/lesson-accordion";
 import { TrackTimeline } from "@/components/tracks/track-timeline";
 import { ModuleReviewCard } from "@/components/tracks/module-review-card";
+import { TrackClinicalCard } from "@/components/tracks/track-clinical-card";
 
 // --- ÍCONES ---
 const ICON_MAP: Record<string, any> = {
@@ -164,21 +165,27 @@ export default async function TrackDetailsPage({ params }: { params: Promise<{ i
                                     </p>
                                 </div>
 
-                                {/* CARD 2: OSCE AI */}
-                                <div className="bg-slate-100 border-2 border-dashed border-slate-300 rounded-2xl p-6 relative opacity-60 cursor-not-allowed group hover:bg-slate-50 transition-colors">
-                                    <div className="absolute top-4 right-4 bg-slate-200 text-slate-500 text-xs font-bold px-2 py-1 rounded-md">
-                                        EM BREVE
-                                    </div>
+                                {/* CARD 2: TREINO CLÍNICO */}
+                                {(() => {
+                                    // Build ai_context digest from all lessons
+                                    const aiContextDigest = lessons
+                                        .filter((l: any) => l.ai_context && l.ai_context.trim().length > 0)
+                                        .map((l: any) => `[${l.title}]: ${l.ai_context}`)
+                                        .join('\n\n')
+                                        .slice(0, 4000); // Limit to avoid token overflow
 
-                                    <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-4 text-slate-400 grayscale">
-                                        <MessageSquareDashed size={24} />
-                                    </div>
+                                    const topics = [...new Set(
+                                        lessons.map((l: any) => l.title as string)
+                                    )].slice(0, 10);
 
-                                    <h3 className="font-bold text-slate-700 mb-1">Simulação OSCE (IA)</h3>
-                                    <p className="text-sm text-slate-500 leading-relaxed">
-                                        Converse com pacientes virtuais e treine sua anamnese e raciocínio clínico.
-                                    </p>
-                                </div>
+                                    return (
+                                        <TrackClinicalCard
+                                            trackId={track.id}
+                                            topics={topics}
+                                            aiContextDigest={aiContextDigest}
+                                        />
+                                    );
+                                })()}
                             </div>
                         </div>
                     </>

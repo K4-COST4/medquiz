@@ -1,7 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js"; // Admin Client
 import { getEnhancedContext } from "@/app/actions/medai-rag";
-import { generateEmbedding } from "@/app/actions/medai-core"; // Importando embedding
+import { generateEmbedding } from "@/app/actions/medai-core";
+import { AI_CONFIG } from "@/lib/ai-config";
 
 // Imports do Sistema de Qualidade
 import { validateQuestionBatch } from "@/app/actions/question-validator";
@@ -272,7 +273,7 @@ ${FEW_SHOT_EXAMPLES}
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({
-            model: "gemini-3-flash-preview",
+            model: AI_CONFIG.questionModel,
             generationConfig: { responseMimeType: "application/json" }
         });
 
