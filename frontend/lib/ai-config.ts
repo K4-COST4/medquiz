@@ -26,18 +26,31 @@ export const AI_CONFIG = {
 
     /** Modelo para geração de trilhas */
     get trackModel(): string {
-        return process.env.TRACK_MODEL || 'gemini-3-pro-preview';
+        return process.env.TRACK_MODEL || 'gemini-3-flash-preview';
     },
+
+    /** Thinking habilitado para geração de trilhas */
+    trackModelThinking: true as const,
 
     /** Modelo para geração de questões */
     get questionModel(): string {
         return process.env.QUESTION_MODEL || 'gemini-3-flash-preview';
     },
 
+    /** Modelo para geração de resumos de aulas */
+    get summaryModel(): string {
+        return process.env.SUMMARY_MODEL || 'gemini-3-flash-preview';
+    },
+    /** Thinking habilitado para geração de resumos de aulas */
+    summaryModelThinking: true as const,
+
     /** Modelo para geração de blueprint clínico */
     get clinicalBlueprintModel(): string {
         return process.env.CLINICAL_BLUEPRINT_MODEL || 'gemini-3-flash-preview';
     },
+
+    /** Thinking habilitado para geração de blueprint clínico */
+    clinicalBlueprintModelThinking: true as const,
 
     /** Modelo para paciente virtual (respostas no chat) */
     get clinicalPatientModel(): string {

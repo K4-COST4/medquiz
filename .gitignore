@@ -16,9 +16,15 @@
 # testing
 /coverage
 
-/scripts
-/scripts*
+/frontend/app/(plataform)/admin
 /scripts/.env
+/frontend/app/(plataform)/erros
+/scripts
+/frontend/app/play
+/frontend/app/(plataform)/live
+/backend
+
+
 
 # next.js
 /.next/

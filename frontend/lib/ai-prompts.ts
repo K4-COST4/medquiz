@@ -306,7 +306,40 @@ CAMPO available_exams:
   * micro (culturas, PCR, BAAR, antígenos)
 - Cada exame DEVE ter: code (canônico, snake_case), category, name, result_summary (laudo curto <100 chars)
 - Inclua entre 6 e 15 exames por caso (proporcional à complexidade)
-- Inclua pelo menos 1-2 exames com resultado NORMAL (para não "entregar" o diagnóstico)
+- Inclua pelo menos 5-10 exames com resultado NORMAL (para não "entregar" o diagnóstico)
+
+CAMPO physical_exam — REGRAS OBRIGATÓRIAS:
+O exame físico é a FONTE DA VERDADE para a aba "Exame Físico" do treino. Siga rigorosamente:
+
+SINAIS VITAIS (vitals):
+- Sempre forneça PA, FC, FR, Temperatura e SatO2 no formato:
+  "PA 130/85 mmHg | FC 92 bpm | FR 18 irpm | Temp 37,8°C | SatO2 95% AA"
+- Os valores DEVEM ser coerentes com o diagnóstico e o environment:
+  * PS/UTI (caso agudo): pode ter FC elevada, SatO2 baixa, febre, PA alterada
+  * Ambulatório (caso crônico): sinais mais próximos do normal ou levemente alterados
+
+SISTEMAS — princípios gerais:
+1. Cada campo de sistema deve ter 1-3 frases descritoras no estilo laudo de semiologia.
+2. SEMPRE inclua achados PERTINENTES AO DIAGNÓSTICO (achados positivos) em pelo menos 2-3 sistemas relevantes.
+3. SEMPRE inclua pelo menos 2-3 sistemas com achados normais (para não "entregar" o diagnóstico de imediato e forçar raciocínio).
+4. Use terminologia semiológica correta (ex: "MV presente bilateralmente, com crepitações bibasais de pequena intensidade", "RCR 2T, sem sopros, B3 presente em foco mitral").
+5. Evite textos vagos como "normal" ou "sem alterações" isolados — prefira descrição semiológica mínima.
+6. Adapte ao environment:
+   * PS/UTI: enfatize sinais de instabilidade, urgência e disfunção orgânica.
+   * Ambulatório: descreva achados crônicos e sutis; enfatize exame cardiovascular e abdominal detalhados.
+   * Enfermaria: achados em investigação ou pós-admissão; incluir sinais de evolução do quadro.
+7. O campo "geniturinario" pode ser omitido (string vazia "") se não for relevante ao caso.
+
+EXEMPLOS DE ACHADOS BEM ESCRITOS:
+- geral: "Paciente em regular estado geral, consciente, orientado, hipocorado (+/4+), taquidispneico em repouso."
+- cardiovascular: "Ictus não palpável. RCR 2T, B3 presente em foco mitral, sem sopros. Pulsos periféricos presentes e simétricos. Edema de MMII ++/4+, depressível, até joelhos."
+- respiratorio: "Expansibilidade reduzida à esquerda. MV ausente em base esquerda com macicez à percussão. Sem roncos ou sibilos. FR 26 irpm."
+- abdominal: "Abdome plano, flácido. RHA presentes. Sem dor à palpação. Fígado a 2 cm do RCD, baço não palpável. Sem ascite."
+- neurologico: "Glasgow 15/15. Pupilas isocóricas e fotorreagentes. Força e sensibilidade preservadas. Sem déficits focais."
+- pele_mucosas: "Palidez cutânea-mucosa ++/4+. Sem icterícia, cianose ou lesões cutâneas. Linfonodos não palpáveis."
+- cabeca_pescoco: "Orofaringe hiperemiada sem exsudatos. Tireoide não palpável. JVP aumentada a 45°. Sem rigidez de nuca."
+- musculoesqueletico: "Sem artrite ativa. Amplitude de movimento preservada. Marcha sem alterações."
+- geniturinario: "Punho-percussão bilateral negativa. Sem globo vesical."
 
 DIFFICULTY SCALING:
 - easy: história clara, poucos diagnósticos diferenciais, red flags óbvios

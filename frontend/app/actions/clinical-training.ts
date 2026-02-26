@@ -198,6 +198,7 @@ GERE UM CASE BLUEPRINT com os seguintes parâmetros:
         userMessage,
         responseType: 'json',
         modelName: AI_CONFIG.clinicalBlueprintModel,
+        enableThinking: AI_CONFIG.clinicalBlueprintModelThinking,
         skipQuota: false,
         quotaType: 'clinical',
     });
@@ -307,11 +308,21 @@ export async function sendQuestion(
         .order('created_at', { ascending: true })
         .limit(30);
 
-    // Build Gemini history format
-    const geminiHistory = (history || []).map((msg: any) => ({
-        role: msg.role === 'user' ? 'user' as const : 'model' as const,
-        parts: [{ text: msg.content }],
-    }));
+    // Build Gemini history format:
+    // - Exclude 'system' role messages (not valid in Gemini chat turns)
+    // - Gemini requires the first entry to be role 'user', so drop any
+    //   leading 'model' turns that have no preceding user turn.
+    const rawHistory = (history || [])
+        .filter((msg: any) => msg.role !== 'system')
+        .map((msg: any) => ({
+            role: msg.role === 'user' ? 'user' as const : 'model' as const,
+            parts: [{ text: msg.content }],
+        }));
+
+    // Drop leading model turns (Gemini rejects history that starts with model)
+    const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
+    const geminiHistory = firstUserIdx > 0 ? rawHistory.slice(firstUserIdx) : rawHistory;
+
 
     // Call patient_responder
     const aiResult = await askMedAI({
@@ -653,6 +664,7 @@ ${JSON.stringify(blueprint, null, 2)}
     };
 }
 
+// ==============================================================================
 // 7. PERFORM PHYSICAL EXAM (by body system — no LLM, reads from blueprint)
 // ==============================================================================
 
@@ -665,10 +677,10 @@ export async function performPhysicalExam(
 
     const supabase = await createClient();
 
-    // Load session
+    // Load session (also load current physical_exam_findings to append)
     const { data: session } = await supabase
         .from('case_sessions')
-        .select('id, case_id, status')
+        .select('id, case_id, status, physical_exam_findings')
         .eq('id', sessionId)
         .eq('user_id', user.id)
         .single();
@@ -704,17 +716,216 @@ export async function performPhysicalExam(
         findings = 'Sem alterações significativas neste sistema.';
     }
 
-    // Add system message in chat
+    const result: PerformPhysicalExamResult = {
+        system,
+        system_label: PHYSICAL_EXAM_LABELS[system],
+        findings,
+    };
+
+    // Persist findings in case_sessions.physical_exam_findings (JSONB array)
     const adminClient = createAdminClient();
+    const existingFindings: PerformPhysicalExamResult[] =
+        (session.physical_exam_findings as PerformPhysicalExamResult[] | null) || [];
+    const alreadyDone = existingFindings.some(f => f.system === system);
+    if (!alreadyDone) {
+        await adminClient
+            .from('case_sessions')
+            .update({ physical_exam_findings: [...existingFindings, result] })
+            .eq('id', sessionId);
+    }
+
+    // Add system message in chat
     await adminClient.from('case_messages').insert({
         session_id: sessionId,
         role: 'system',
         content: `🩺 Exame físico realizado: ${PHYSICAL_EXAM_LABELS[system]}. Achados disponíveis na aba Exame Físico.`,
     });
 
-    return {
-        system,
-        system_label: PHYSICAL_EXAM_LABELS[system],
-        findings,
-    };
+    return result;
 }
+
+// ==============================================================================
+// 8. GET SESSION PHYSICAL FINDINGS (restore on re-entry)
+// ==============================================================================
+
+export async function getSessionPhysicalFindings(
+    sessionId: string
+): Promise<PerformPhysicalExamResult[]> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data } = await supabase
+        .from('case_sessions')
+        .select('physical_exam_findings')
+        .eq('id', sessionId)
+        .eq('user_id', user.id)
+        .single();
+
+    return (data?.physical_exam_findings as PerformPhysicalExamResult[] | null) || [];
+}
+
+// ==============================================================================
+// 9. LIST CASE SESSIONS (history for a given case)
+// ==============================================================================
+
+export interface SessionSummary {
+    id: string;
+    created_at: string;
+    status: string;
+    score_total: number | null;
+    attempt_number: number;
+}
+
+export async function listCaseSessions(
+    caseId: string
+): Promise<SessionSummary[]> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data } = await supabase
+        .from('case_sessions')
+        .select('id, created_at, status, score_total')
+        .eq('case_id', caseId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
+
+    return ((data || []) as any[]).map((s, idx) => ({
+        id: s.id,
+        created_at: s.created_at,
+        status: s.status,
+        score_total: s.score_total,
+        attempt_number: idx + 1,
+    }));
+}
+
+// ==============================================================================
+// 10. RESET SESSION (repeat same case — new session, same blueprint)
+// ==============================================================================
+
+export async function resetSession(
+    caseId: string,
+    environment: CaseEnvironment
+): Promise<{ sessionId: string } | { error: string }> {
+    const user = await getAuthUser();
+    if (!user) return { error: "Usuário não autenticado." };
+
+    const adminClient = createAdminClient();
+    const { data, error } = await adminClient
+        .from('case_sessions')
+        .insert({
+            user_id: user.id,
+            case_id: caseId,
+            status: 'in_progress',
+            environment,
+        })
+        .select('id')
+        .single();
+
+    if (error || !data) {
+        console.error('Error resetting session:', error);
+        return { error: "Erro ao criar nova sessão." };
+    }
+
+    return { sessionId: data.id };
+}
+
+// ==============================================================================
+// 11 (a). DELETE SESSION
+// ==============================================================================
+
+export async function deleteSession(
+    sessionId: string
+): Promise<{ success: boolean; error?: string }> {
+    const user = await getAuthUser();
+    if (!user) return { success: false, error: 'Não autenticado.' };
+
+    const supabase = await createClient();
+
+    // Verify ownership before deletion
+    const { data: session } = await supabase
+        .from('case_sessions')
+        .select('id, case_id')
+        .eq('id', sessionId)
+        .eq('user_id', user.id)
+        .single();
+
+    if (!session) return { success: false, error: 'Sessão não encontrada.' };
+
+    const adminClient = createAdminClient();
+
+    // Delete the session (cascade removes messages, exam requests, etc.)
+    const { error } = await adminClient
+        .from('case_sessions')
+        .delete()
+        .eq('id', sessionId);
+
+    if (error) {
+        console.error('Error deleting session:', error);
+        return { success: false, error: 'Erro ao apagar sessão.' };
+    }
+
+    return { success: true };
+}
+
+
+// ==============================================================================
+// 11. GET RECENT CASE SESSIONS (for history panel on selector page)
+// ==============================================================================
+
+export interface RecentSession {
+    session_id: string;
+    case_id: string;
+    title: string;
+    topics: string[];
+    environment: CaseEnvironment;
+    difficulty: string;
+    status: string;
+    score_total: number | null;
+    created_at: string;
+    submitted_at: string | null;
+}
+
+export async function getRecentCaseSessions(limit = 10): Promise<RecentSession[]> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    // Fetch most recent sessions with their case metadata
+    const { data } = await supabase
+        .from('case_sessions')
+        .select(`
+            id,
+            status,
+            score_total,
+            created_at,
+            submitted_at,
+            clinical_cases (
+                id,
+                title,
+                topics,
+                environment,
+                difficulty
+            )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (!data) return [];
+
+    return data.map((row: any) => ({
+        session_id: row.id,
+        case_id: row.clinical_cases?.id ?? '',
+        title: row.clinical_cases?.title ?? 'Sem título',
+        topics: row.clinical_cases?.topics ?? [],
+        environment: row.clinical_cases?.environment ?? 'ambulatorio',
+        difficulty: row.clinical_cases?.difficulty ?? 'medium',
+        status: row.status,
+        score_total: row.score_total,
+        created_at: row.created_at,
+        submitted_at: row.submitted_at,
+    }));
+}
+

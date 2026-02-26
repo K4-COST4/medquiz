@@ -48,6 +48,7 @@ export function LessonAccordion({ lesson, index }: LessonAccordionProps) {
     const [isLoadingSummary, setIsLoadingSummary] = useState(false);
     const [mistakeCount, setMistakeCount] = useState(0);
     const [generalQuota, setGeneralQuota] = useState<number | null>(null);
+    const [summaryQuota, setSummaryQuota] = useState<{ remaining: number; limit: number } | null>(null);
     const router = useRouter();
 
     useEffect(() => {
@@ -59,7 +60,10 @@ export function LessonAccordion({ lesson, index }: LessonAccordionProps) {
         ]).then(([count, quotas]) => {
             if (isMounted) {
                 setMistakeCount(count);
-                if (quotas) setGeneralQuota(quotas.general.remaining);
+                if (quotas) {
+                    setGeneralQuota(quotas.general.remaining);
+                    setSummaryQuota({ remaining: quotas.summary.remaining, limit: quotas.summary.limit });
+                }
             }
         });
         return () => { isMounted = false; };
@@ -239,12 +243,12 @@ export function LessonAccordion({ lesson, index }: LessonAccordionProps) {
                             <div>
                                 <div className="flex items-center gap-2">
                                     <h4 className="font-bold text-blue-900">Resumo Inteligente</h4>
-                                    {generalQuota !== null && (
+                                    {summaryQuota !== null && (
                                         <span className={cn(
                                             "text-[10px] font-bold px-1.5 py-0.5 rounded border",
-                                            generalQuota > 0 ? "bg-white text-blue-600 border-blue-200" : "bg-red-100 text-red-600 border-red-200"
+                                            summaryQuota.remaining > 0 ? "bg-white text-blue-600 border-blue-200" : "bg-red-100 text-red-600 border-red-200"
                                         )}>
-                                            {generalQuota}/10
+                                            {summaryQuota.remaining}/{summaryQuota.limit} sem
                                         </span>
                                     )}
                                 </div>
@@ -257,14 +261,14 @@ export function LessonAccordion({ lesson, index }: LessonAccordionProps) {
                             <div className="mt-auto">
                                 <button
                                     onClick={() => {
-                                        if (generalQuota !== null && generalQuota <= 0) {
-                                            toast.error("Limite diário de resumos atingido (10/10).");
+                                        if (summaryQuota !== null && summaryQuota.remaining <= 0) {
+                                            toast.error(`Limite semanal de resumos atingido (${summaryQuota.limit}/semana).`);
                                             return;
                                         }
                                         setIsLoadingSummary(true);
                                         router.push(`/resumo/${lesson.id}`);
                                     }}
-                                    disabled={isLoadingSummary || (generalQuota !== null && generalQuota <= 0)}
+                                    disabled={isLoadingSummary || (summaryQuota !== null && summaryQuota.remaining <= 0)}
                                     className="w-full py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
                                 >
                                     {isLoadingSummary ? (
@@ -275,7 +279,7 @@ export function LessonAccordion({ lesson, index }: LessonAccordionProps) {
                                     ) : (
                                         <>
                                             <BookOpen size={14} />
-                                            {generalQuota !== null && generalQuota <= 0 ? "Limite Atingido" : "Ler Resumo"}
+                                            {summaryQuota !== null && summaryQuota.remaining <= 0 ? "Limite Semanal Atingido" : "Ler Resumo"}
                                         </>
                                     )}
                                 </button>

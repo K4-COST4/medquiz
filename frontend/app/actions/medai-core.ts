@@ -18,10 +18,21 @@ interface MedAIOptions {
     systemInstructionArgs?: string
     inlineData?: { data: string, mimeType: string }
     skipQuota?: boolean
-    quotaType?: 'general' | 'flashcard' | 'track' | 'clinical' | 'unlimited'
+    quotaType?: 'general' | 'flashcard' | 'track' | 'clinical' | 'summary' | 'unlimited'
+    /** Ativa o modo de thinking do Gemini (reasoning antes de responder) */
+    enableThinking?: boolean
 }
 
 const LIMITS = QUOTA_LIMITS;
+
+// Helper local: semana ISO "YYYY-WW"
+function getCurrentWeekStr(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+    const week = Math.ceil(((now.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+    return `${year}-${String(week).padStart(2, '0')}`;
+}
 
 const getGenAI = () => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
@@ -47,7 +58,7 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
     } else {
         const { data: fetchedProfile } = await supabase
             .from('profiles')
-            .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, last_track_generation_date')
+            .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, last_track_generation_date, weekly_summary_count, last_summary_week')
             .eq('id', user.id)
             .single()
 
@@ -98,6 +109,17 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
                     return { success: false, message: "Limite diário de treinos clínicos atingido (3 por dia).", limitReached: true, usesLeft: 0 };
                 }
             }
+            // E. SUMMARY (10 por semana)
+            else if (quotaType === 'summary') {
+                const currentWeek = getCurrentWeekStr();
+                let summaryCount = 0;
+                if (profile.last_summary_week === currentWeek) {
+                    summaryCount = profile.weekly_summary_count || 0;
+                }
+                if (summaryCount >= LIMITS.summary && !options.skipQuota) {
+                    return { success: false, message: `Limite semanal de resumos atingido (${LIMITS.summary}/semana).`, limitReached: true, usesLeft: 0 };
+                }
+            }
         }
     }
 
@@ -110,10 +132,14 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
             systemPrompt += `\n\nCONTEXTO ADICIONAL:\n${options.systemInstructionArgs}`
         }
 
-        const model = genAI.getGenerativeModel({
+        const modelConfig: any = {
             model: modelName,
-            systemInstruction: systemPrompt
-        })
+            systemInstruction: systemPrompt,
+        }
+        if (options.enableThinking) {
+            modelConfig.generationConfig = { thinkingConfig: { thinkingBudget: -1 } }
+        }
+        const model = genAI.getGenerativeModel(modelConfig)
 
         let finalText = ""
 
@@ -180,6 +206,13 @@ export async function askMedAI(options: MedAIOptions): Promise<MedAIResponse> {
                 updates.last_track_generation_date = new Date().toISOString();
                 delete updates.ai_usage_date; // Remove do update p/ não afetar ciclo diário
             }
+            else if (quotaType === 'summary') {
+                const currentWeek = getCurrentWeekStr();
+                const isThisWeek = profile?.last_summary_week === currentWeek;
+                updates.weekly_summary_count = (isThisWeek ? (profile?.weekly_summary_count || 0) : 0) + 1;
+                updates.last_summary_week = currentWeek;
+                delete updates.ai_usage_date; // Não afeta ciclo diário
+            }
 
             if (Object.keys(updates).length > 0) {
                 await supabase.from('profiles').update(updates).eq('id', user.id)
@@ -227,7 +260,7 @@ export async function getUsageQuotas() {
     const today = new Date().toISOString().split('T')[0];
     const { data: profile } = await supabase
         .from('profiles')
-        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, last_track_generation_date')
+        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, last_track_generation_date, weekly_summary_count, last_summary_week')
         .eq('id', user.id)
         .single();
 
@@ -262,6 +295,14 @@ export async function getUsageQuotas() {
         }
     }
 
+    // 4. Summary (resumos de aulas — semanal)
+    const currentWeek = getCurrentWeekStr();
+    let summaryUsed = 0;
+    if (profile.last_summary_week === currentWeek) {
+        summaryUsed = profile.weekly_summary_count || 0;
+    }
+    const summaryRemaining = Math.max(0, LIMITS.summary - summaryUsed);
+
     return {
         general: {
             remaining: generalRemaining,
@@ -277,6 +318,11 @@ export async function getUsageQuotas() {
             available: trackAvailable,
             daysUntilNext: daysUntilNextTrack,
             limit: LIMITS.track
+        },
+        summary: {
+            remaining: summaryRemaining,
+            limit: LIMITS.summary,
+            used: summaryUsed
         }
     };
 }

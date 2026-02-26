@@ -1,7 +1,12 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
 import SessionClient from './session-client';
-import { getSessionMessages, getSessionExams } from '@/app/actions/clinical-training';
+import {
+    getSessionMessages,
+    getSessionExams,
+    getSessionPhysicalFindings,
+    listCaseSessions,
+} from '@/app/actions/clinical-training';
 import type { CaseBlueprint, GradeResult } from '@/types/clinical-training';
 
 interface PageProps {
@@ -28,9 +33,13 @@ export default async function ClinicalSessionPage({ params }: PageProps) {
     const clinicalCase = session.clinical_cases as any;
     const blueprint = clinicalCase.blueprint_json as CaseBlueprint;
 
-    // Load messages and exams
-    const messages = await getSessionMessages(sessionId);
-    const exams = await getSessionExams(sessionId);
+    // Load all session data in parallel
+    const [messages, exams, physicalFindings, caseSessions] = await Promise.all([
+        getSessionMessages(sessionId),
+        getSessionExams(sessionId),
+        getSessionPhysicalFindings(sessionId),
+        listCaseSessions(clinicalCase.id),
+    ]);
 
     // Build initial grade if graded
     let initialGrade: GradeResult | null = null;
@@ -45,13 +54,18 @@ export default async function ClinicalSessionPage({ params }: PageProps) {
     return (
         <SessionClient
             sessionId={sessionId}
+            caseId={clinicalCase.id}
             stem={blueprint.stem || clinicalCase.stem || ''}
             environment={session.environment}
             availableExams={blueprint.available_exams || []}
             initialMessages={messages}
             initialExams={exams}
+            initialPhysicalFindings={physicalFindings}
+            initialAnamnesis={session.final_anamnesis_text || ''}
             sessionStatus={session.status}
             initialGrade={initialGrade}
+            caseSessions={caseSessions}
+            currentSessionId={sessionId}
         />
     );
 }

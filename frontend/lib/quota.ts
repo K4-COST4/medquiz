@@ -16,9 +16,19 @@ export const QUOTA_LIMITS = {
     track: 1,         // 1 por semana
     trackCooldownDays: 7,
     clinical: 3,      // 3 sessões clínicas/dia
+    summary: 10,      // 10 resumos/semana
 } as const;
 
-export type QuotaType = 'general' | 'flashcard' | 'track' | 'clinical' | 'unlimited';
+export type QuotaType = 'general' | 'flashcard' | 'track' | 'clinical' | 'summary' | 'unlimited';
+
+// Retorna a semana ISO atual no formato "YYYY-WW"
+function getCurrentWeek(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+    const week = Math.ceil(((now.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+    return `${year}-${String(week).padStart(2, '0')}`;
+}
 
 export interface QuotaCheckResult {
     allowed: boolean;
@@ -42,7 +52,7 @@ export async function checkQuota(
 
     const { data: profile } = await supabase
         .from('profiles')
-        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, last_track_generation_date')
+        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, last_track_generation_date, weekly_summary_count, last_summary_week')
         .eq('id', userId)
         .single();
 
@@ -110,6 +120,20 @@ export async function checkQuota(
             };
         }
 
+        case 'summary': {
+            const currentWeek = getCurrentWeek();
+            let count = 0;
+            if (profile.last_summary_week === currentWeek) {
+                count = profile.weekly_summary_count || 0;
+            }
+            const remaining = Math.max(0, QUOTA_LIMITS.summary - count);
+            return {
+                allowed: count < QUOTA_LIMITS.summary,
+                remaining,
+                error: remaining === 0 ? `Limite semanal de resumos atingido (${QUOTA_LIMITS.summary}/semana).` : undefined,
+            };
+        }
+
         default:
             return { allowed: true, remaining: Infinity };
     }
@@ -129,7 +153,7 @@ export async function consumeQuota(
 
     const { data: profile } = await supabase
         .from('profiles')
-        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count')
+        .select('ai_usage_count, ai_usage_date, daily_flashcards_count, daily_clinical_count, weekly_summary_count, last_summary_week')
         .eq('id', userId)
         .single();
 
@@ -158,6 +182,15 @@ export async function consumeQuota(
         case 'clinical': {
             updates.daily_clinical_count = (isToday ? (profile?.daily_clinical_count || 0) : 0) + 1;
             if (!isToday) updates.ai_usage_count = 0;
+            break;
+        }
+
+        case 'summary': {
+            const currentWeek = getCurrentWeek();
+            const isThisWeek = profile?.last_summary_week === currentWeek;
+            updates.weekly_summary_count = (isThisWeek ? (profile?.weekly_summary_count || 0) : 0) + 1;
+            updates.last_summary_week = currentWeek;
+            delete updates.ai_usage_date; // Não afeta ciclo diário
             break;
         }
     }
